@@ -1,0 +1,32 @@
+[package]
+name = "bevy_speech_bubbles"
+version = "0.1.0"
+edition = "2024"
+description = "World-space speech and thought balloons: CPU ab_glyph text raster baked into an Image on a billboarded 3D quad, tracked to an owner and turned toward a camera you name."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Ladvien/bevy_speech_bubbles"
+keywords = ["bevy", "gamedev", "dialogue", "billboard", "text"]
+categories = ["game-development"]
+publish = false
+
+[dependencies]
+# The umbrella with defaults off, matching `emerge-anim`'s precedent in the parent workspace. This crate
+# needs Image + StandardMaterial + Mesh + Transform + Visibility + Time<Real>, which is eight sub-crates
+# spelled individually and one feature list spelled this way. Nothing here is new to that tree, so it
+# costs no download and no link-time growth — features unify with the game's full bevy.
+bevy = { version = "0.19.0", default-features = false, features = [
+    "bevy_asset",   # Assets<T>, Handle<T>, RenderAssetUsages
+    "bevy_image",   # Image::new, Extent3d / TextureDimension / TextureFormat
+    "bevy_mesh",    # Rectangle -> Mesh for the quad
+    "bevy_pbr",     # StandardMaterial: the unlit, alpha-blended balloon face
+    "std",
+] }
+# Pure-Rust CPU glyph rasterization, no system deps. Bevy 0.19's text stack (parley/swash) has no public
+# "rasterize a string into a standalone Image" API, and a world-space balloon has no 2D camera to host
+# `Text2d` — so the text is baked to an RGBA image and sampled on a quad.
+ab_glyph = "0.2"
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[features]
+# `BubbleKind`/`Emotion` deserialize, so a caller can author bubbles in a data file.
+default = ["serde"]
