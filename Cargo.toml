@@ -27,6 +27,13 @@ bevy = { version = "0.19.0", default-features = false, features = [
 ab_glyph = "0.2"
 serde = { version = "1.0", features = ["derive"], optional = true }
 
+# **Examples only.** The crate's own `bevy` above is trimmed to what a balloon needs — asset, image,
+# mesh, pbr. A runnable example additionally needs a window, an event loop (winit) and the 3D camera
+# pipeline, so it takes the full umbrella here, where it cannot reach a consumer's dependency graph.
+# `tests/leaf.rs` reads `[dependencies]` only, deliberately.
+[dev-dependencies]
+bevy = { version = "0.19.0" }
+
 [features]
 # `BubbleKind`/`Emotion` deserialize, so a caller can author bubbles in a data file.
 default = ["serde"]
