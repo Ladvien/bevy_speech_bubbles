@@ -59,7 +59,7 @@ mod style;
 /// Glyph pixel scale. High enough that the baked texture stays crisp when the ortho camera zooms in.
 const CAP_PX: f32 = 40.0;
 /// Padding between text and the balloon edge.
-const PAD: f32 = 20.0;
+const PAD: f32 = 28.0;
 /// Transparent margin around the balloon for the border's anti-aliased outer edge.
 const MARGIN: f32 = 6.0;
 /// Wrap width for the text block.
@@ -308,6 +308,55 @@ fn wrap_lines<F: Font>(sf: &impl ScaleFont<F>, text: &str, max_w: f32) -> Vec<St
     lines
 }
 
+/// Horizontal padding wide enough that the text block's corners clear the balloon's corner arc.
+///
+/// Split out of `rasterize` so it can be tested without a font: the property that matters is pure
+/// geometry, and requiring a `.ttf` to check it would mean not checking it. See
+/// `text_corners_stay_inside_the_balloon`.
+fn horizontal_pad(text_w: f32, text_h: f32, thought: bool) -> f32 {
+    let balloon_h = text_h + 2.0 * PAD;
+    // The worst point on the text block: its outer corner, relative to the balloon centre.
+    let corner = Vec2::new(text_w * 0.5, text_h * 0.5);
+    // Clear of the stroke, not merely inside the silhouette — a glyph touching the border reads as a
+    // rendering fault even though it is technically within the shape.
+    let clear = BORDER + 4.0;
+
+    // **Solved against the same SDF the renderer uses, rather than derived.** A closed form for this
+    // is easy to get subtly wrong: the first attempt here engineered HORIZONTAL clearance, which on a
+    // steeply curved cap is not the same quantity the SDF measures (perpendicular distance), and it
+    // came up 0.18px short at four lines while looking correct. Bisecting the real function cannot
+    // drift from the shape being drawn, and costs 24 iterations of arithmetic once per line of text.
+    let fits = |pad: f32| {
+        let half = Vec2::new((text_w + 2.0 * pad) * 0.5, balloon_h * 0.5);
+        let r = if thought {
+            half.y.min(half.x)
+        } else {
+            SPEECH_RADIUS.min(half.x).min(half.y)
+        };
+        rounded_rect_sdf(corner, half, r) <= -clear
+    };
+
+    // A speech balloon's radius is fixed and small, so it almost always already fits and pays nothing.
+    if fits(PAD) {
+        return PAD;
+    }
+    let mut lo = PAD;
+    let mut hi = PAD + text_h + clear;
+    // Widen until the upper bound genuinely fits, so the bisection below has a bracket. Bounded
+    // rather than `while`, because a shape that never fits must not hang the caller.
+    for _ in 0..8 {
+        if fits(hi) {
+            break;
+        }
+        hi += text_h.max(PAD);
+    }
+    for _ in 0..24 {
+        let mid = 0.5 * (lo + hi);
+        if fits(mid) { hi = mid } else { lo = mid }
+    }
+    hi
+}
+
 /// Rasterize a bubble to RGBA8 bytes + dimensions.
 fn rasterize(font: &FontArc, style: &BubbleStyle, text: &str) -> (Vec<u8>, u32, u32) {
     let pal = palette(style);
@@ -322,8 +371,21 @@ fn rasterize(font: &FontArc, style: &BubbleStyle, text: &str) -> (Vec<u8>, u32, 
         .max(MIN_TEXT_W);
     let text_h = line_h * lines.len() as f32;
 
-    let balloon_w = text_w + 2.0 * PAD;
     let balloon_h = text_h + 2.0 * PAD;
+    let thought = matches!(style.kind, BubbleKind::Thought);
+
+    // **Horizontal padding has to clear the corner arc, not just the flat edge.**
+    //
+    // A thought balloon is a pill: its radius is half the balloon height, so the left and right caps
+    // are semicircles that curve inward by `r - sqrt(r^2 - dy^2)` at distance `dy` above and below the
+    // centre line. The text block's top and bottom corners sit at `dy = text_h/2`, which is exactly
+    // where that inset is largest — so a flat `PAD` is only enough while the balloon is short.
+    //
+    // Measured, before this existed: one line cleared it with 11px to spare, two lines overflowed the
+    // cap by ~5px and three by ~23px, which is why the clipping looked intermittent rather than broken.
+    // Speech balloons need it too, just less: their radius is a fixed `SPEECH_RADIUS`.
+    let pad_x = horizontal_pad(text_w, text_h, thought);
+    let balloon_w = text_w + 2.0 * pad_x;
     let tail_h = if style.tail { TAIL_H } else { 0.0 };
     let img_w = (balloon_w + 2.0 * MARGIN).ceil() as u32;
     let img_h = (balloon_h + 2.0 * MARGIN + tail_h).ceil() as u32;
@@ -334,7 +396,6 @@ fn rasterize(font: &FontArc, style: &BubbleStyle, text: &str) -> (Vec<u8>, u32, 
     let cx = MARGIN + balloon_w / 2.0;
     let cy = MARGIN + balloon_h / 2.0;
     let half = Vec2::new(balloon_w / 2.0, balloon_h / 2.0);
-    let thought = matches!(style.kind, BubbleKind::Thought);
     let radius = if thought {
         (balloon_h * 0.5).min(balloon_w * 0.5) // pill
     } else {
@@ -374,7 +435,7 @@ fn rasterize(font: &FontArc, style: &BubbleStyle, text: &str) -> (Vec<u8>, u32, 
     }
 
     // Text glyphs, top-down.
-    let left = MARGIN + PAD;
+    let left = MARGIN + pad_x;
     let mut baseline = MARGIN + PAD + sf.ascent();
     for line in &lines {
         let mut caret = left;
@@ -464,6 +525,52 @@ fn edge(a: Vec2, b: Vec2, p: Vec2) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    /// **The clipping bug, pinned as geometry.**
+    ///
+    /// A thought balloon is a pill, so its cap curves inward by `r - sqrt(r^2 - dy^2)` at the text
+    /// block's top and bottom corners. With a flat `PAD` that was fine for one line and wrong for
+    /// three: measured overflow was ~5px at two lines and ~23px at three, which is why the clipping
+    /// read as intermittent rather than as a bug.
+    ///
+    /// This asserts the property directly — the worst point of the text rect must sit inside the
+    /// fill, clear of the border — for both shapes at one through four lines.
+    #[test]
+    fn text_corners_stay_inside_the_balloon() {
+        for lines in 1..=4 {
+            for thought in [false, true] {
+                let text_w = 300.0;
+                let text_h = 56.0 * lines as f32;
+                let pad = horizontal_pad(text_w, text_h, thought);
+                let balloon_w = text_w + 2.0 * pad;
+                let balloon_h = text_h + 2.0 * PAD;
+                let half = Vec2::new(balloon_w * 0.5, balloon_h * 0.5);
+                let radius = if thought {
+                    (balloon_h * 0.5).min(balloon_w * 0.5)
+                } else {
+                    SPEECH_RADIUS.min(half.x).min(half.y)
+                };
+                // The outer corner of the text block, relative to the balloon centre.
+                let corner = Vec2::new(text_w * 0.5, text_h * 0.5);
+                let d = rounded_rect_sdf(corner, half, radius);
+                assert!(
+                    d < -BORDER,
+                    "lines={lines} thought={thought}: text corner sits at sdf {d:.2}, which is not \
+                     clear of the {BORDER}px border — glyphs there draw over the outline or outside it"
+                );
+            }
+        }
+    }
+
+    /// A pill only needs the extra width once it is tall enough to curve into the text, so a
+    /// single-line balloon must not get silently fatter for nothing.
+    #[test]
+    fn one_line_pays_nothing_for_the_fix() {
+        assert_eq!(horizontal_pad(300.0, 56.0, true), PAD);
+        assert_eq!(horizontal_pad(300.0, 56.0, false), PAD);
+        assert!(horizontal_pad(300.0, 168.0, true) > PAD, "three lines must widen the pill");
+    }
 
     #[test]
     fn dwell_has_floor() {
