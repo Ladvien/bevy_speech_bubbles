@@ -23,6 +23,7 @@ The same principle applies to the schedule and the font. This crate **exports sy
 ## Rules
 
 - **Bevy 0.19 is pinned.** Read the vendored source (`~/.cargo/registry/src/index.crates.io-*/bevy-0.19.0/`, and its `examples/`), not bevy.org — that documents `main` and has been wrong for this pin more than once.
+- Consult Bevy documentation often. It can be found at codex_fs/offline_reference_docs/bevy-0.19-book/
 - **A missing `Res<T>` panics its system in 0.19**; it does not skip. Take `Option<Res<T>>`, or have the caller `init_resource` it. This bites hardest here, because `BubbleAssets` is caller-supplied.
 - **All run conditions are evaluated — there is no short-circuit.** A bare `Res<T>` in a `.run_if(..)` closure panics whenever that resource is absent, even behind an earlier condition that returned false.
 - **`Single<..>` silently skips its system on a non-unique match** — which is exactly why the camera is a type parameter rather than `With<Camera3d>`.
