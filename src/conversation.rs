@@ -561,8 +561,8 @@ pub(crate) fn present_current(
 pub(crate) fn advance_line(
     mut commands: Commands,
     time: Res<Time<Real>>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
+    mut mouse: ResMut<ButtonInput<MouseButton>>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
     presenter: Res<Presenter>,
     active: Option<ResMut<Active>>,
     script: Res<DialogueScript>,
@@ -584,16 +584,23 @@ pub(crate) fn advance_line(
         Some(Node::Line { next, .. }) => next.clone(),
         _ => return,
     };
-    let pressed = mouse.just_pressed(MouseButton::Left)
-        || keys.just_pressed(KeyCode::Enter)
-        || keys.just_pressed(KeyCode::NumpadEnter)
-        || keys.just_pressed(KeyCode::Space);
+    // Only a press the dialog actually uses is cleared; a timed-out balloon line uses none.
+    let mut pressed = mouse.get_just_pressed().any(|b| *b == MouseButton::Left);
+    for key in [KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space] {
+        pressed |= keys.just_pressed(key);
+    }
     let timed_out = *presenter == Presenter::Balloons && time.elapsed_secs() >= active.advance_at;
     if !pressed && !timed_out {
         return;
     }
-    if pressed && complete_typing(&mut typewriters) {
-        return;
+    if pressed {
+        mouse.clear_just_pressed(MouseButton::Left);
+        for key in [KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space] {
+            keys.clear_just_pressed(key);
+        }
+        if complete_typing(&mut typewriters) {
+            return;
+        }
     }
     match next {
         Some(n) => {
@@ -613,7 +620,7 @@ pub(crate) fn advance_line(
 /// resolution path. An out-of-range digit is ignored rather than clamped: pressing `5` on a two-option
 /// choice should do nothing, not silently pick the last one.
 pub(crate) fn choice_hotkeys(
-    keys: Res<ButtonInput<KeyCode>>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
     active: Option<Res<Active>>,
     script: Res<DialogueScript>,
     mut picked: MessageWriter<ChoicePicked>,
@@ -643,7 +650,9 @@ pub(crate) fn choice_hotkeys(
         (KeyCode::Digit9, KeyCode::Numpad9),
     ];
     for (index, (row, numpad)) in DIGITS.iter().enumerate().take(options.len()) {
-        if keys.just_pressed(*row) || keys.just_pressed(*numpad) {
+        let row_pressed = keys.clear_just_pressed(*row);
+        let numpad_pressed = keys.clear_just_pressed(*numpad);
+        if row_pressed || numpad_pressed {
             picked.write(ChoicePicked { index });
             return; // one pick per frame, even if two keys land together
         }

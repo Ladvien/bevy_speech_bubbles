@@ -7,7 +7,7 @@
 
 use bevy::prelude::*;
 use bevy_speech_bubbles::{
-    Bark, BarkSettings, BubbleAssets, ConversationEnded, ConversationLock, DialogSkin,
+    Bark, BarkSettings, BubbleAssets, ConversationEnded, ConversationLock, DialogInputSet, DialogSkin,
     DialogueScript, Presenter, Speaker, Speakers, SpeechBubblesPlugin, StartConversation,
     validate_script,
 };
@@ -270,4 +270,73 @@ fn a_bark_is_always_a_world_balloon() {
     let world = app.world_mut();
     let balloons: Vec<Entity> = world.query_filtered::<Entity, With<Bubble>>().iter(world).collect();
     assert_eq!(balloons.len(), 1, "only the villager's bark has a head to float over");
+}
+
+/// What a host system ordered after the dialog saw of Space.
+#[derive(Resource, Default)]
+struct HostSaw {
+    space: Vec<bool>,
+}
+
+fn host_system(keys: Res<ButtonInput<KeyCode>>, mut saw: ResMut<HostSaw>) {
+    saw.space.push(keys.just_pressed(KeyCode::Space));
+}
+
+/// A press the dialog uses is gone for a `PreUpdate` system ordered `.after(DialogInputSet)`, and with
+/// no conversation running nothing is cleared.
+#[test]
+fn a_consumed_press_is_hidden_from_later_preupdate_systems() {
+    let mut app = app();
+    app.init_resource::<HostSaw>()
+        .add_systems(PreUpdate, host_system.after(DialogInputSet));
+
+    // No conversation: Space must stay just_pressed for the host.
+    tap(&mut app, KeyCode::Space);
+    assert_eq!(app.world().resource::<HostSaw>().space, vec![true], "the dialog ate a key with no conversation");
+
+    // A conversation on a line: Space advances it, so the host must not see it.
+    start(&mut app);
+    app.world_mut().resource_mut::<HostSaw>().space.clear();
+    tap(&mut app, KeyCode::Space);
+    assert!(shows(&mut app, "Open it?"), "Space did not advance the line");
+    assert_eq!(app.world().resource::<HostSaw>().space, vec![false], "the host saw the Space the dialog used");
+
+}
+
+/// The first Space while a line is still typing completes it and is consumed too.
+#[test]
+fn a_press_that_completes_typing_is_consumed() {
+    let mut app = app();
+    app.init_resource::<HostSaw>()
+        .add_systems(PreUpdate, host_system.after(DialogInputSet));
+    app.world_mut().resource_mut::<DialogSkin>().chars_per_second = 1.0;
+    start(&mut app);
+    app.world_mut().resource_mut::<HostSaw>().space.clear();
+    tap(&mut app, KeyCode::Space);
+    assert_eq!(app.world().resource::<HostSaw>().space, vec![false]);
+}
+
+/// Digits are consumed only when they pick an option that exists.
+#[test]
+fn digits_are_consumed_only_when_they_pick() {
+    let mut app = app();
+    start(&mut app);
+    tap(&mut app, KeyCode::Space); // line -> choice with two options
+    let press = |app: &mut App, key: KeyCode| {
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(key);
+    };
+    press(&mut app, KeyCode::Digit7);
+    app.update();
+    assert!(
+        app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Digit7),
+        "an out-of-range digit was consumed"
+    );
+    app.world_mut().resource_mut::<ButtonInput<KeyCode>>().release(KeyCode::Digit7);
+    app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear();
+    press(&mut app, KeyCode::Digit1);
+    app.update();
+    assert!(
+        !app.world().resource::<ButtonInput<KeyCode>>().just_pressed(KeyCode::Digit1),
+        "a digit that picked was not consumed"
+    );
 }

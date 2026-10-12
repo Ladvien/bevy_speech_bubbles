@@ -66,7 +66,7 @@ Bevy's text stack has no public "rasterize this string into a standalone `Image`
 
 ## Cosmetic by construction
 
-Everything runs in `Update` on `Time<Real>`, so balloons still expire and the typewriter still types while the host has paused virtual time. The typewriter reads `DialogSkin::chars_per_second` every tick, so a settings menu can change the speed of the line on screen.
+Everything runs on `Time<Real>`, so balloons still expire and the typewriter still types while the host has paused virtual time. The conversation runtime runs in `PreUpdate` after Bevy's input systems, in the public `DialogInputSet`, and consumes the key and click presses it uses (`clear_just_pressed`): order your own `PreUpdate` systems `.after(DialogInputSet)` and a Space that ended a line is no longer `just_pressed` for them. The cosmetic systems (typewriter, caret, balloon tracking and expiry) stay in `Update`. The typewriter reads `DialogSkin::chars_per_second` every tick, so a settings menu can change the speed of the line on screen.
 
 ## Examples
 

@@ -43,9 +43,15 @@
 //!
 //! # Cosmetic by construction
 //!
-//! Everything runs in `Update` on `Time<Real>`, so balloons still expire and the typewriter still types
-//! while the simulation is paused — a modal conversation that zeroed virtual time would otherwise
-//! freeze its own dialogue on screen forever. Hosts pause on [`ConversationLock`].
+//! Everything runs on `Time<Real>`, so balloons still expire and the typewriter still types while the
+//! simulation is paused — a modal conversation that zeroed virtual time would otherwise freeze its
+//! own dialogue on screen forever. Hosts pause on [`ConversationLock`].
+//!
+//! The conversation runtime (input, node walking, presenting, barks) runs in `PreUpdate` after
+//! `InputSystems`, in [`DialogInputSet`], and **consumes the presses it uses** with
+//! `clear_just_pressed`: the Space that ends a line is gone for any host system ordered
+//! `.after(DialogInputSet)`, so it cannot also throw a stone. The cosmetic systems (typewriter, caret,
+//! pop animation, balloon tracking and expiry) stay in `Update`, after the host's movement.
 
 pub mod balloon;
 pub mod conversation;
@@ -63,5 +69,5 @@ pub use conversation::{
     validate_script,
 };
 pub use dialog_box::{ChoiceFocus, DEFAULT_CHARS_PER_SECOND, DIALOG_Z, DialogSkin};
-pub use plugin::SpeechBubblesPlugin;
+pub use plugin::{DialogInputSet, SpeechBubblesPlugin};
 pub use style::{BubbleKind, Emotion};

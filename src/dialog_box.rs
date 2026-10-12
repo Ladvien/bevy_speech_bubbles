@@ -502,7 +502,7 @@ pub(crate) fn caret_blink(
 /// Arrows move the focused option, `Enter`/`Space` pick it (the first press while the prompt is still
 /// typing completes it instead). Writes the same [`ChoicePicked`] as the pointer and the digits.
 pub(crate) fn choice_focus_input(
-    keys: Res<ButtonInput<KeyCode>>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
     presenter: Res<Presenter>,
     active: Option<Res<Active>>,
     script: Res<DialogueScript>,
@@ -527,15 +527,18 @@ pub(crate) fn choice_focus_input(
     if n == 0 {
         return;
     }
-    if keys.just_pressed(KeyCode::ArrowDown) {
+    if keys.clear_just_pressed(KeyCode::ArrowDown) {
         focus.0 = (focus.0 + 1) % n;
     }
-    if keys.just_pressed(KeyCode::ArrowUp) {
+    if keys.clear_just_pressed(KeyCode::ArrowUp) {
         focus.0 = (focus.0 + n - 1) % n;
     }
-    let confirm = keys.just_pressed(KeyCode::Enter)
-        || keys.just_pressed(KeyCode::NumpadEnter)
-        || keys.just_pressed(KeyCode::Space);
+    // Every confirm key is cleared, whether the press completed the typing prompt or picked: the dialog
+    // used it either way, so the host's own systems must not see it.
+    let mut confirm = false;
+    for key in [KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space] {
+        confirm |= keys.clear_just_pressed(key);
+    }
     if confirm && !complete_typing(&mut typewriters) {
         picked.write(ChoicePicked {
             index: focus.0.min(n - 1),

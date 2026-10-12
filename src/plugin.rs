@@ -3,6 +3,7 @@
 
 use std::marker::PhantomData;
 
+use bevy::input::InputSystems;
 use bevy::prelude::*;
 
 use crate::balloon::{DefaultBalloonSkin, expire_bubbles, track_bubbles};
@@ -16,13 +17,20 @@ use crate::dialog_box::{
     typewriter_tick,
 };
 
+/// The conversation runtime's input-reading and state-advancing systems (`PreUpdate`, after
+/// [`InputSystems`]). They consume the key and click presses they use, so a host system ordered
+/// `.after(DialogInputSet)` in `PreUpdate` no longer sees them as `just_pressed`.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DialogInputSet;
+
 /// Dialog kit plugin. `C` is the marker component of the camera the balloons face — name a marker you
 /// control (see [`track_bubbles`]); the crate never guesses one.
 ///
 /// Registers [`StartConversation`], [`ChoicePicked`], [`ConversationEnded`] and [`Bark`], and inserts
 /// [`Speakers`], [`DialogueScript`], [`BarkQueue`], [`BarkSettings`], [`DefaultBalloonSkin`],
 /// [`ChoiceFocus`] and [`Presenter::Balloons`] (insert your own after adding the plugin to override).
-/// Everything runs in `Update`, chained. It loads no font and no script: the host inserts
+/// The runtime runs in `PreUpdate` ([`DialogInputSet`]) and consumes the presses it uses; the cosmetic
+/// systems (typewriter, caret, balloon tracking and expiry) run in `Update`. It loads no font and no script: the host inserts
 /// [`BubbleAssets`](crate::BubbleAssets) and fills [`DialogueScript`] and [`Speakers`]; a
 /// [`Presenter::DialogBox`] also needs a [`DialogSkin`](crate::DialogSkin).
 pub struct SpeechBubblesPlugin<C: Component>(PhantomData<fn() -> C>);
@@ -46,8 +54,12 @@ impl<C: Component> Plugin for SpeechBubblesPlugin<C> {
             .init_resource::<DefaultBalloonSkin>()
             .init_resource::<ChoiceFocus>()
             .insert_resource(Presenter::Balloons)
+            // The runtime reads input and moves the conversation along in `PreUpdate`, right after
+            // Bevy's input systems, and consumes the presses it uses (`clear_just_pressed`). A host
+            // orders its own `PreUpdate` systems `.after(DialogInputSet)` and never sees a key the
+            // dialog took. Real time, so a paused virtual clock does not matter.
             .add_systems(
-                Update,
+                PreUpdate,
                 (
                     open_conversation,
                     // Input before `resolve_choice`, so a digit or `Enter` pressed this frame
@@ -60,6 +72,16 @@ impl<C: Component> Plugin for SpeechBubblesPlugin<C> {
                     present_dialog_box,
                     queue_barks,
                     release_bark,
+                )
+                    .chain()
+                    .in_set(DialogInputSet)
+                    .after(InputSystems),
+            )
+            // Everything cosmetic stays in `Update`: balloons must follow their owner after the
+            // host's movement, so they track in `Update` like any billboard.
+            .add_systems(
+                Update,
+                (
                     typewriter_tick,
                     paint_choices,
                     caret_blink,
