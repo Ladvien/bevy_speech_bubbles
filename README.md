@@ -58,7 +58,7 @@ While a conversation runs the resource `ConversationLock` exists: pause on it, a
 
 ## The font is yours to load
 
-`BubbleAssets` holds a quad mesh and a `FontArc`, and the dialog box takes `TextFont`s in its skin; this crate never reads a file. A library that hardcoded `assets/fonts/…` would be hardcoding your project layout.
+`BubbleAssets` holds a quad mesh and a `FontArc`, and the dialog box takes `TextFont`s in its skin; this crate never reads a file. `BubbleAssets::from_font_bytes(quad, bytes)` builds the resource from raw font bytes, and `FontArc` is re-exported, so you need no `ab_glyph` dependency. A library that hardcoded `assets/fonts/…` would be hardcoding your project layout.
 
 ## Why the balloon text is rasterized here
 

@@ -70,6 +70,15 @@ pub struct BubbleAssets {
     pub font: FontArc,
 }
 
+impl BubbleAssets {
+    /// Build the assets from raw font bytes (a `.ttf` or `.otf`), so a host need not depend on
+    /// `ab_glyph`. The error string names why the bytes are not a usable font.
+    pub fn from_font_bytes(quad: Handle<Mesh>, bytes: Vec<u8>) -> Result<Self, String> {
+        let font = FontArc::try_from_vec(bytes).map_err(|e| format!("not a usable font: {e}"))?;
+        Ok(Self { quad, font })
+    }
+}
+
 /// The colours a balloon is drawn with, and whether its edges are anti-aliased.
 ///
 /// The hosts own the look: `crt()` is the phosphor palette this crate always had, `ink_on_paper()` is
@@ -639,6 +648,17 @@ mod tests {
         assert!((dwell_secs("") - DWELL_FLOOR).abs() < 1.0e-6);
     }
     // ----- pixel skin -----
+
+    /// `from_font_bytes` builds from a real font and refuses garbage.
+    #[test]
+    fn from_font_bytes_accepts_a_font_and_refuses_garbage() {
+        let bytes = include_bytes!("../tests/data/FiraMono-subset.ttf").to_vec();
+        assert!(BubbleAssets::from_font_bytes(Handle::default(), bytes).is_ok());
+        let err = BubbleAssets::from_font_bytes(Handle::default(), b"definitely not a font".to_vec())
+            .err()
+            .expect("garbage must be refused");
+        assert!(err.contains("font"), "{err}");
+    }
 
     /// Fira Mono subset (OFL), so the rasterizer can be exercised without a system font.
     fn test_font() -> FontArc {

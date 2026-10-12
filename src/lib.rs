@@ -59,6 +59,7 @@ pub mod dialog_box;
 pub mod plugin;
 pub mod style;
 
+pub use ab_glyph::FontArc;
 pub use balloon::{
     BUBBLE_ANCHOR_Y, BalloonSkin, Bubble, BubbleAssets, BubbleStyle, BubbleTtl, DefaultBalloonSkin,
     RenderedBubble, build_bubble, dwell_secs, expire_bubbles, track_bubbles,
