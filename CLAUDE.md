@@ -1,35 +1,44 @@
 # bevy_speech_bubbles — notes for agents
 
-World-space speech and thought balloons: text rasterized on the CPU into an `Image`, put on a billboarded quad, anchored above an owner entity and turned to face a camera you name.
+The dialog kit: world-space speech and thought balloons (text rasterized on the CPU into an `Image`, on a billboarded quad), a conversation graph and runtime (lines, choices, barks), and a skinnable screen dialog box built from Bevy UI nodes.
 
 ## Source of truth
 
-The source of truth for this crate is [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) at `crates/bevy_speech_bubbles/`. If you are reading this in a standalone `Ladvien/bevy_speech_bubbles` checkout, that is a read-only `git subtree split` mirror — **changes made here cannot be pulled back**. Make them upstream.
+This repository, [`Ladvien/bevy_speech_bubbles`](https://github.com/Ladvien/bevy_speech_bubbles), is canonical. MIT OR Apache-2.0. It co-evolves with Sanctuary (`/Users/ladvien/sanctuary`, a path dependency): fixes and features land here first, in their own commit with tests here, and are never patched into the game. Run `cargo test` here before pushing and in Sanctuary before relying on the change.
+
+## Layout
+
+- `src/lib.rs` — crate docs and re-exports.
+- `src/balloon.rs` — the rasterizer, `BalloonSkin`, `BubbleStyle`, `build_bubble`, `track_bubbles::<C>`, `expire_bubbles`, `dwell_secs`.
+- `src/style.rs` — `BubbleKind`, `Emotion`.
+- `src/conversation.rs` — the model (`DialogueScript`, `Conversation`, `Node`, `Choice`, `validate_script`), `Speakers`, `Presenter`, the messages, `Active` (private), the balloon presenter, `Bark`, `BarkQueue`, `BarkSettings`.
+- `src/dialog_box.rs` — `DialogSkin`, the screen box, typewriter, caret, choices.
+- `src/plugin.rs` — `SpeechBubblesPlugin<C>`.
+- `tests/leaf.rs` — the boundary ratchet. `tests/walk.rs` — the headless walk through the plugin. `tests/data/` — a test font.
 
 ## Build and test
 
-A leaf — `bevy` with defaults off, `ab_glyph`, and optional `serde` — so it builds and tests on its own: `cargo test -p bevy_speech_bubbles`.
+`cargo test`, `cargo build --examples`, `cargo clippy --all-targets`. CI also runs `cargo build --release`, which takes no dev-dependencies and so compiles exactly the features a consumer gets: the full `bevy` dev-dependency would hide a hole in the trimmed feature list. Examples need a font path argument: `cargo run --example dialog_box -- /System/Library/Fonts/Supplemental/Arial.ttf`.
 
-## The non-negotiable: never name a game's camera
+## The non-negotiables
 
-`tests/leaf.rs` forbids more than crate names. Its scan rejects `MainCamera`, `SquadMember` and `MenuState` in the sources, alongside `avian`, `emerge` and `foundation_vs_slop`.
+- **Never name a game's camera.** `tests/leaf.rs` scans the sources and rejects `MainCamera`, `SquadMember` and `MenuState` alongside `avian`, `emerge` and `foundation_vs_slop`. This crate once named a camera marker from the game it was extracted from, and the fix (generic over the marker: `track_bubbles::<C>`, `SpeechBubblesPlugin::<C>`) is what stops it silently breaking in a project with a second 3D camera. Naming one again would compile.
+- **One plugin, generic over the camera marker, no game knowledge.** Speakers are strings the host resolves through `Speakers`; skins, fonts and scripts are handed in. The crate registers messages and resources and schedules its systems in `Update`; the host keeps everything else.
+- **The caller supplies the font.** `BubbleAssets` holds a `FontArc` and the crate never reads a file; the dialog box takes `TextFont`s in `DialogSkin`. A library that hardcoded `assets/fonts/…` would be hardcoding the game's layout.
+- **No `unwrap()`, no `expect()` outside tests,** including font loading and image allocation. A misconfigured host (no `DialogSkin`, no `BubbleAssets`, an unknown speaker) gets a loud `error!`/`warn!` and, for a conversation, a clean `ConversationEnded`, never a panic or a held lock.
+- **One path per feature.** No fallbacks, no legacy shims, no stub placeholders. A pick from the pointer, the number keys, the arrows or a gamepad is one `ChoicePicked` message resolved in one place.
 
-Those three identifiers are there because **this crate already made that mistake**: it used to name a camera marker from the game it was extracted from. The fix — making the tracking system generic over the marker (`track_bubbles::<C>`) — is what stops it silently breaking in any project with a second 3D camera. Naming one again would undo that, **and it would compile**. That is why the test exists.
+## Design facts worth keeping
 
-The same principle applies to the schedule and the font. This crate **exports system functions and registers no plugin**, so the caller keeps its schedule; and the font path stays with the caller, because "where do the assets live" is the one thing a library must not assume.
-
-**CPU raster, not a text stack.** Bevy 0.19's text pipeline (parley/swash) has no public "rasterize a string to a standalone `Image`" API, and a world-space balloon has no 2D camera to host `Text2d` — so text is baked into an RGBA image sampled on a quad. `ab_glyph` is pure Rust, no system deps. Green, *"Improved Alpha-Tested Magnification for Vector Textures"* (SIGGRAPH 2007) is the SDF alternative; raster-on-change is the simpler one path, and it was chosen on purpose.
+- **CPU raster, not a text stack, for balloons.** Bevy's text pipeline has no public "rasterize a string to a standalone `Image`" API, and a world-space balloon has no 2D camera to host `Text2d`. `ab_glyph` is pure Rust. `BalloonSkin { pixel: true }` thresholds the shape SDF and the glyph coverage at 0.5 and gives the image a nearest sampler.
+- **The dialog box is UI, not raster.** It uses `Text` with a transparent `TextSpan` for the unrevealed tail so the layout is that of the finished line from the first frame. The typewriter reads `DialogSkin.chars_per_second` every tick, so a settings menu changes it live. One box lives for the whole conversation and pops on each new node.
+- **Everything runs on `Time<Real>`** so balloons expire and the typewriter types while the host has paused virtual time on `ConversationLock`.
+- **A `Bark` is always a world balloon** whatever `Presenter` says; a speaker without an `entity` has no head to float over, so its bark is dropped and its balloon-mode lines are skipped.
 
 ## Rules
 
-- **Bevy 0.19 is pinned.** Read the vendored source (`~/.cargo/registry/src/index.crates.io-*/bevy-0.19.0/`, and its `examples/`), not bevy.org — that documents `main` and has been wrong for this pin more than once.
-- Consult Bevy documentation often. It can be found at codex_fs/offline_reference_docs/bevy-0.19-book/
-- **A missing `Res<T>` panics its system in 0.19**; it does not skip. Take `Option<Res<T>>`, or have the caller `init_resource` it. This bites hardest here, because `BubbleAssets` is caller-supplied.
-- **All run conditions are evaluated — there is no short-circuit.** A bare `Res<T>` in a `.run_if(..)` closure panics whenever that resource is absent, even behind an earlier condition that returned false.
+- **Bevy 0.20 is pinned.** Read the vendored source (`~/.cargo/registry/src/index.crates.io-*/bevy-0.20.0/`, its `examples/` and `_release-content/migration-guides/`), not bevy.org — that documents `main` and has been wrong for a pin more than once. Pointer events are flat in 0.20 (`On<PointerClick>`, not `On<Pointer<Click>>`).
+- **A missing `Res<T>` panics its system.** Take `Option<Res<T>>`, or have the plugin `init_resource` it. This bites hardest for `BubbleAssets` and `DialogSkin`, which are caller-supplied.
+- **All run conditions are evaluated — there is no short-circuit.** A bare `Res<T>` in a `.run_if(..)` closure panics whenever that resource is absent.
 - **`Single<..>` silently skips its system on a non-unique match** — which is exactly why the camera is a type parameter rather than `With<Camera3d>`.
-- **No `unwrap()`**, including on font loading and image allocation.
-- **One path per feature.** No fallbacks, no legacy shims, no stub placeholders.
-
-## In the monorepo
-
-The game re-exports this through `dialogue::bubble` (`src/dialogue/bubble.rs:15`) and `dialogue::model` (`src/dialogue/model.rs:21`), which is where the font path and the game's camera marker are supplied. Root `CLAUDE.md` and `TESTING.md` carry the project-wide rules; neither is part of this mirror.
+- In tests, `ButtonInput::clear()` drops `just_pressed` only: also `release` a key before pressing it again.

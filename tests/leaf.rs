@@ -1,7 +1,9 @@
 //! **The crate boundary, enforced.**
 //!
-//! `bevy_speech_bubbles` draws balloons. It takes `bevy` (a trimmed feature set), `ab_glyph` for glyph
-//! rasterization, and optionally `serde` — and it must never learn anything about a particular game.
+//! `bevy_speech_bubbles` is a dialog kit: balloons, a conversation graph and a screen dialog box. It
+//! takes `bevy` (a trimmed feature set), `ab_glyph` for glyph rasterization and `serde` for the
+//! conversation model — and it must never learn anything about a particular game. (`ron` is a
+//! dev-dependency of the tests, outside the table this scan reads.)
 //!
 //! The source scan below forbids more than crate names: `MainCamera`, `SquadMember` and `MenuState` are
 //! there because each is a specific temptation this crate already faced. It USED to name a camera
@@ -9,16 +11,14 @@
 //! the marker — is what stops it silently breaking in any project with a second 3D camera. Naming one
 //! again would undo that, and it would compile.
 //!
-//! `bevy_app` is not forbidden here (the trimmed `bevy` umbrella pulls it), but the crate still
-//! registers no plugin: it exports system FUNCTIONS, so the caller keeps its schedule.
+//! The crate ships ONE plugin, `SpeechBubblesPlugin<C>`, generic over the camera marker, and no game
+//! knowledge: speakers are strings the host resolves, fonts and skins are handed in.
 
 use std::path::{Path, PathBuf};
 
-/// Everything `emerge-core` is allowed to depend on. Data and arithmetic, nothing that draws.
+/// Everything this crate is allowed to depend on.
 const ALLOWED_DEPS: &[&str] = &["bevy", "ab_glyph", "serde"];
 
-/// Crate names that would mean the boundary has been crossed, checked as substrings so
-/// `bevy_math`/`bevy_ecs` are caught as readily as `bevy`.
 /// Crate names that would mean the boundary has been crossed. `bevy_math` is glam types and is
 /// allowed above; anything that draws, schedules, or knows what a game is, is not.
 const FORBIDDEN_DEP_MARKERS: &[&str] =
@@ -123,10 +123,9 @@ fn no_source_file_reaches_for_an_engine() {
     assert!(
         offenders.is_empty(),
         "bevy_speech_bubbles must stay engine-free, but {} line(s) reference an engine crate.\n  {}\n\n\
-         This crate is what lets the game, the headless search and the standalone editor share the \
-         placement stack without agreeing on a renderer. If a type genuinely needs to cross the \
+         This crate is a dialog kit any game can take. If a type genuinely needs to cross the \
          boundary, the answer is a plain-data type here and a conversion on the far side — not a \
-         dependency. See docs/2026-08-03-emerge-mapper-plan.md.",
+         dependency.",
         offenders.len(),
         offenders.join("\n  ")
     );
@@ -165,8 +164,7 @@ fn the_dependency_list_stays_closed() {
         assert!(
             ALLOWED_DEPS.contains(&name),
             "bevy_speech_bubbles declares `{name}`, which is not in its allowed set {ALLOWED_DEPS:?}.\n\
-             Widening this is a design decision, not a convenience — see \
-             docs/2026-08-03-emerge-mapper-plan.md. If it is genuinely warranted, add it to ALLOWED_DEPS in \
+             Widening this is a design decision, not a convenience. If it is genuinely warranted, add it to ALLOWED_DEPS in \
              this test in the same commit, so the change is visible in review."
         );
         for marker in FORBIDDEN_DEP_MARKERS {

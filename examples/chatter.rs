@@ -26,7 +26,7 @@
 use ab_glyph::FontArc;
 use bevy::prelude::*;
 use bevy_speech_bubbles::{
-    Bubble, BubbleAssets, BubbleKind, BubbleStyle, BubbleTtl, Emotion, build_bubble, dwell_secs,
+    BalloonSkin, Bubble, BubbleAssets, BubbleKind, BubbleStyle, BubbleTtl, Emotion, build_bubble, dwell_secs,
     expire_bubbles, track_bubbles,
 };
 
@@ -204,7 +204,7 @@ fn take_a_turn(
     ring.next = (ring.next + 1) % ring.speakers.len();
     ring.line += 1;
 
-    let style = BubbleStyle { kind, emotion, tail: true };
+    let style = BubbleStyle { kind, emotion, tail: true, skin: BalloonSkin::crt() };
     let face = build_bubble(&assets, &mut images, &mut materials, &style, text);
 
     commands.spawn((

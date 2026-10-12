@@ -1,9 +1,4 @@
-# CI for the standalone `bevy_speech_bubbles` mirror.
-#
-# **This path is inert upstream and live here.** GitHub only reads workflows from `.github/` at a
-# repository root, so in the monorepo this file is an ordinary text file that nothing runs. The
-# `git subtree split` that produces the mirror lifts `crates/bevy_speech_bubbles/` to the root — and
-# this file with it — so it becomes the mirror's CI without the monorepo gaining a second workflow.
+# CI for bevy_speech_bubbles (canonical repository).
 name: CI
 
 on:
@@ -32,8 +27,8 @@ jobs:
       # **The load-bearing step, and it is `build` rather than `test` deliberately.**
       #
       # `cargo test` compiles dev-dependencies, and this crate's dev-dependency is the FULL `bevy`
-      # umbrella — the examples need a window and a 3D camera, while the crate itself is trimmed to
-      # asset + image + mesh + pbr. Cargo unifies features across a build, so under `cargo test` the
+      # umbrella — the examples need a window and a camera, while the crate itself is trimmed to
+      # asset, image, mesh, pbr, ui, text and picking. Cargo unifies features across a build, so under `cargo test` the
       # crate silently receives every Bevy feature there is, and a hole in its own `[dependencies]`
       # feature list cannot fail.
       #

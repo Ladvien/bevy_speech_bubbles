@@ -1,70 +1,82 @@
 # bevy_speech_bubbles
 
-> ⚠️ **Vibe Coded** — written by an AI agent working from a human's direction. It is used in a shipping game and covered by tests, but it has had no line-by-line human audit. Read it before you trust it.
-
-World-space speech and thought balloons: text rasterized on the CPU into an `Image`, put on a billboarded quad, anchored above an owner entity and turned to face a camera you name.
+A dialog kit for Bevy 0.20: world-space speech and thought balloons, a conversation graph with a runtime, paced barks, and a skinnable screen dialog box.
 
 ![Five coloured figures standing in a ring while the camera orbits; speech balloons with pointed tails and thought balloons with dot-tails appear above them and fade, each holding its face toward the camera](docs/chatter.gif)
 
-That is `examples/chatter.rs`. The balloons are **quads in the scene**, not a UI layer — which is the whole difference, and the orbit is what shows it: they hold a world position above their owner, they can be occluded, and they turn because `track_bubbles` turns them. A screen-space overlay gives you none of that, and `Text2d` would want a 2D camera this scene does not have.
+That is `examples/chatter.rs`. The balloons are **quads in the scene**, not a UI layer: they hold a world position above their owner, they can be occluded, and they turn because `track_bubbles` turns them. Two shapes carry the channel (a tailed balloon for what is said aloud, a soft pill with a dot-tail for what is only thought) and the border tint carries the affect.
 
-Two shapes carry the channel — a tailed balloon for what is said aloud, a soft pill with a dot-tail for what is only thought — and the border tint carries the affect. Dwell time is not a constant either: `dwell_secs` scales with how much there is to read, so long lines linger and short ones snap away.
+This repository is canonical: MIT OR Apache-2.0, Bevy 0.20, and it co-evolves with the game it was built for, Sanctuary, as a path dependency.
 
-> **This repo is a read-only mirror.** It is split out of [`Ladvien/foundation_vs_slop`](https://github.com/Ladvien/foundation_vs_slop) with `git subtree split`, history intact. Issues and PRs belong upstream.
+## What is in it
 
-## In the world, not on the screen
+- **Balloons** (`balloon`): `build_bubble`, `track_bubbles::<C>`, `expire_bubbles`, and a `BalloonSkin` for the palette. `BalloonSkin::crt()` is the phosphor look; `BalloonSkin::ink_on_paper()` is parchment with hard pixel edges (`pixel: true` draws without anti-aliasing and uses a nearest sampler).
+- **A conversation kit** (`conversation`): a `DialogueScript` of named `Conversation`s, each a graph of `Node::Line` and `Node::Choice`, `validate_script`, and a runtime driven by the messages `StartConversation`, `ChoicePicked` and `ConversationEnded`. The model is `serde`: load it from YAML or RON. Speakers are strings the host resolves through `Speakers`. `Bark`s are paced one-off balloons.
+- **A screen dialog box** (`dialog_box`): Bevy UI nodes skinned by `DialogSkin` (9-sliced frame, tiled paper, name tag, portrait, caret), with a typewriter, a pop on each line, and choices you can click, hover, arrow through, or pick with the number keys.
+- **`SpeechBubblesPlugin::<C>`**: wires the three together, generic over the marker of the camera balloons face.
 
-No 2D camera, no UI layer, no screen-space overlay. The balloon is a quad in the scene — it occludes and is occluded like anything else, and it moves with the thing that said it.
+## Use
 
 ```rust
-// Load the font from wherever YOUR assets live, and insert the resource.
+app.add_plugins(SpeechBubblesPlugin::<MyCamera>::default())
+    .insert_resource(Presenter::DialogBox) // or Presenter::Balloons, the default
+    .insert_resource(my_dialog_skin)       // a DialogSkin built from your theme
+    .insert_resource(my_script);           // a DialogueScript, validated
+
+// Balloons need a font (yours to load) and a quad:
 commands.insert_resource(BubbleAssets {
     quad: meshes.add(Rectangle::new(1.0, 1.0)),
     font: FontArc::try_from_vec(std::fs::read("assets/fonts/Something.ttf")?)?,
 });
 
-let face = build_bubble(&assets, &mut images, &mut materials, &style, "Contact, west corridor.");
-
-app.add_systems(Update, (
-    track_bubbles::<MyMainCamera>,   // anchor, billboard, mirror visibility, despawn orphans
-    expire_bubbles,                  // ambient bubbles time out
-));
+speakers.0.insert("keeper".into(), Speaker { entity: Some(keeper), name: "The Keeper".into(), portrait: None });
+starts.write(StartConversation { id: "gate".into() });
+barks.write(Bark { speaker: "keeper".into(), kind: BubbleKind::Speech, emotion: Emotion::Neutral, text: "Mind the step.".into() });
 ```
 
-Two shapes are drawn: a rounded rect with a pointed tail for `BubbleKind::Speech`, and a soft pill with a trailing dot-tail for `BubbleKind::Thought`. `Emotion` tints the border — balloon colour reliably conveys affect (An et al., *AniBalloons*, arXiv:2408.06294).
+While a conversation runs the resource `ConversationLock` exists: pause on it, and yield your own click handling to it. A script looks like this (RON; any serde format works):
 
-## Name your camera — this one is load-bearing
+```ron
+(conversations: {
+  "gate": (start: "greet", nodes: {
+    "greet": Line(speaker: "keeper", text: "The gate has held three nights.", next: Some("ask")),
+    "ask": Choice(speaker: "keeper", prompt: "Take the watch?", options: [
+      (text: "I will.", next: "yes"),
+      (text: "Ask someone else.", next: "no"),
+    ]),
+    "yes": Line(speaker: "keeper", text: "Good.", next: None),
+    "no": Line(speaker: "keeper", emotion: Sadness, text: "Then I will ask the boy.", next: None),
+  }),
+})
+```
 
-`track_bubbles` is generic over a camera **marker component**, and that is a deliberate safety property rather than flexibility for its own sake.
+`Presenter::Balloons` puts every line over its speaker's head and auto-advances after a reading-speed dwell; a speaker with no entity (a narrator) is skipped. `Presenter::DialogBox` shows the screen box and waits for the player: `Space`, `Enter` or a click completes a typing line and then advances it; `1`-`9`, the arrows with `Enter`, or the mouse pick an option. Barks are always world balloons.
 
-Bevy's `Single<..>` silently *skips* its system when the query does not match exactly one entity. A tracking system filtered on `With<Camera3d>` therefore works perfectly right up until something spawns a second 3D camera — a render-to-texture pass, a portal, a minimap — at which point every bubble quietly stops tracking and nothing anywhere reports an error.
+## Name your camera
 
-Being generic makes it impossible for this crate to write that filter for you. You have to name a marker you control, which is the only version that stays correct.
+`track_bubbles` and the plugin are generic over a camera **marker component**, deliberately. Bevy's `Single<..>` silently skips its system when the query does not match exactly one entity, so a tracking system filtered on `With<Camera3d>` works until something spawns a second 3D camera (a render-to-texture pass, a portal, a minimap), and then every balloon quietly stops tracking and nothing reports an error. Being generic makes it impossible for this crate to write that filter for you.
 
 ## The font is yours to load
 
-`BubbleAssets` holds a quad mesh and a `FontArc`, and this crate never reads a file. A library that hardcoded `assets/fonts/…` would be hardcoding your project layout — so you build the resource and insert it. The crate contains no filesystem access and no panic path.
+`BubbleAssets` holds a quad mesh and a `FontArc`, and the dialog box takes `TextFont`s in its skin; this crate never reads a file. A library that hardcoded `assets/fonts/…` would be hardcoding your project layout.
 
-## Why the text is rasterized here
+## Why the balloon text is rasterized here
 
-Bevy 0.19's text stack has no public "rasterize this string into a standalone `Image`" API, and a world-space balloon has no 2D camera to host a `Text2d`. So glyphs go through `ab_glyph` into an RGBA buffer — once per line, not per frame — and the buffer becomes a texture.
+Bevy's text stack has no public "rasterize this string into a standalone `Image`" API, and a world-space balloon has no 2D camera to host a `Text2d`. So glyphs go through `ab_glyph` into an RGBA buffer, once per line, and the buffer becomes a texture. The screen dialog box needs none of that and uses ordinary `Text`.
 
 ## Cosmetic by construction
 
-Both systems belong on `Update`. `expire_bubbles` reads `Time<Real>` rather than virtual time, so bubbles still expire while the simulation is paused — a modal conversation that zeroed virtual time would otherwise freeze its own dialogue on screen forever.
+Everything runs in `Update` on `Time<Real>`, so balloons still expire and the typewriter still types while the host has paused virtual time. The typewriter reads `DialogSkin::chars_per_second` every tick, so a settings menu can change the speed of the line on screen.
 
 ## Examples
 
 ```sh
-cargo run -p bevy_speech_bubbles --example two_balloons -- /System/Library/Fonts/Supplemental/Arial.ttf
-cargo run -p bevy_speech_bubbles --example chatter      -- /System/Library/Fonts/Supplemental/Arial.ttf
+cargo run --example two_balloons -- /System/Library/Fonts/Supplemental/Arial.ttf
+cargo run --example chatter      -- /System/Library/Fonts/Supplemental/Arial.ttf
+cargo run --example dialog_box   -- /System/Library/Fonts/Supplemental/Arial.ttf
 ```
 
-`two_balloons` is the smallest thing that works: one speech balloon and one thought balloon over two cubes, camera orbiting so you can see them billboard and occlude.
-
-`chatter` is the gif above — five speakers taking turns, both shapes, all seven emotion tints, balloons expiring on their own dwell. It is also the example to read if you are wiring this up, because it shows the one thing that trips people: `BUBBLE_ANCHOR_Y` is measured from the **owner's own translation**, so the crate assumes an origin at the feet. Anchor a balloon to an entity centred on its body and every balloon floats an extra half-height up, tail pointing at nothing.
-
-Both need a GPU, and both take the font path as a required argument rather than defaulting it — the same reason the crate takes a `FontArc` instead of a path: guessing where your assets live is the assumption a library must not make.
+`two_balloons` is the smallest thing that works. `chatter` is the gif above. `dialog_box` runs a four-node script with a choice in the screen box, skinned with flat colours generated in code (`F` cycles the typewriter speed). All need a GPU and take the font path as a required argument.
 
 ## License
 

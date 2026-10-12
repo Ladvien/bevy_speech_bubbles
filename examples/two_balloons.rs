@@ -18,7 +18,7 @@
 use ab_glyph::FontArc;
 use bevy::prelude::*;
 use bevy_speech_bubbles::{
-    build_bubble, dwell_secs, expire_bubbles, track_bubbles, Bubble, BubbleAssets, BubbleKind,
+    build_bubble, dwell_secs, expire_bubbles, track_bubbles, BalloonSkin, Bubble, BubbleAssets, BubbleKind,
     BubbleStyle, BubbleTtl, Emotion,
 };
 
@@ -110,7 +110,7 @@ fn setup(
             .id();
 
         // Built once per line, not per frame — the raster is the expensive part.
-        let style = BubbleStyle { kind, emotion, tail: true };
+        let style = BubbleStyle { kind, emotion, tail: true, skin: BalloonSkin::crt() };
         let face = build_bubble(&assets, &mut images, &mut materials, &style, text);
 
         commands.spawn((
