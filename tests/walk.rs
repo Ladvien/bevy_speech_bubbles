@@ -340,3 +340,31 @@ fn digits_are_consumed_only_when_they_pick() {
         "a digit that picked was not consumed"
     );
 }
+
+/// `ImageNode` draws in the padding box by default, which left a padded name tag's art around its text
+/// only (a wax seal landed on the first letter). Every image the box spawns uses the border box, and
+/// the tag has extra room on the left.
+#[test]
+fn the_name_tag_art_covers_its_border_box() {
+    use bevy::ui::VisualBox;
+
+    let mut app = app();
+    start(&mut app);
+    let world = app.world_mut();
+    let images: Vec<(VisualBox, Val)> = world
+        .query::<(&ImageNode, &Node)>()
+        .iter(world)
+        .map(|(i, n)| (i.visual_box, n.padding.left))
+        .collect();
+    assert!(!images.is_empty(), "the box spawned no images");
+    assert!(
+        images.iter().all(|(b, _)| *b == VisualBox::BorderBox),
+        "an image of the box is not drawn in the border box: {images:?}"
+    );
+    // The skin's padding is 8, so the tag's horizontal padding is 6 and it is the only padded image.
+    assert_eq!(
+        images.iter().filter(|(_, left)| *left == Val::Px(6.0)).count(),
+        1,
+        "the name tag (padding 0.75 x skin) was not found: {images:?}"
+    );
+}

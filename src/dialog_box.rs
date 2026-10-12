@@ -15,6 +15,7 @@ use bevy::picking::events::{PointerClick, PointerOver};
 use bevy::prelude::*;
 use bevy::sprite::TextureSlicer;
 use bevy::time::Real;
+use bevy::ui::VisualBox;
 use bevy::ui::widget::NodeImageMode;
 
 use crate::conversation::{
@@ -271,6 +272,8 @@ pub(crate) fn present_dialog_box(
                     tile_y: true,
                     stretch_value: 1.0,
                 },
+                // `ImageNode` draws in the padding box by default; art belongs to the border box.
+                visual_box: VisualBox::BorderBox,
                 ..default()
             },
             Pickable::IGNORE,
@@ -289,6 +292,7 @@ pub(crate) fn present_dialog_box(
             ImageNode {
                 image: skin.frame.clone(),
                 image_mode: NodeImageMode::Sliced(skin.frame_slicer.clone()),
+                visual_box: VisualBox::BorderBox,
                 ..default()
             },
             Pickable::IGNORE,
@@ -380,7 +384,7 @@ pub(crate) fn present_dialog_box(
                     flex_shrink: 0.0,
                     ..default()
                 },
-                ImageNode::new(portrait),
+                ImageNode::new(portrait).with_visual_box(VisualBox::BorderBox),
             ))
             .id();
         commands.entity(content).add_child(p);
@@ -396,7 +400,7 @@ pub(crate) fn present_dialog_box(
                 bottom: px(skin.padding * 0.5),
                 ..default()
             },
-            ImageNode::new(skin.caret[0].clone()),
+            ImageNode::new(skin.caret[0].clone()).with_visual_box(VisualBox::BorderBox),
             Visibility::Hidden,
         ))
         .id();
@@ -412,12 +416,15 @@ pub(crate) fn present_dialog_box(
                     position_type: PositionType::Absolute,
                     left: px(skin.padding),
                     bottom: percent(100),
-                    padding: UiRect::axes(px(skin.padding * 0.5), px(2)),
+                    // Room on the left for art with a seal; the tag's art is drawn in the whole
+                    // border box (see `visual_box`), so the padding ring is not left empty.
+                    padding: UiRect::axes(px(skin.padding * 0.75), px(2)),
                     ..default()
                 },
                 ImageNode {
                     image: skin.name_tag.clone(),
                     image_mode: NodeImageMode::Sliced(skin.name_tag_slicer.clone()),
+                    visual_box: VisualBox::BorderBox,
                     ..default()
                 },
             ))
