@@ -61,7 +61,7 @@ pub mod style;
 
 pub use ab_glyph::FontArc;
 pub use balloon::{
-    BUBBLE_ANCHOR_Y, BalloonSkin, Bubble, BubbleAssets, BubbleStyle, BubbleTtl, DefaultBalloonSkin,
+    BUBBLE_ANCHOR_Y, BalloonScale, BalloonSkin, Bubble, BubbleAssets, BubbleOffsetPx, BubblePx, BubbleStyle, BubbleTtl, DefaultBalloonSkin,
     RenderedBubble, build_bubble, dwell_secs, expire_bubbles, track_bubbles,
 };
 pub use conversation::{

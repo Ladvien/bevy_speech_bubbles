@@ -31,7 +31,8 @@ use bevy::time::Real;
 use serde::{Deserialize, Serialize};
 
 use crate::balloon::{
-    Bubble, BubbleAssets, BubbleStyle, BubbleTtl, DefaultBalloonSkin, build_bubble, dwell_secs,
+    Bubble, BubbleAssets, BubbleOffsetPx, BubblePx, BubbleStyle, BubbleTtl, DefaultBalloonSkin,
+    build_bubble, dwell_secs,
 };
 use crate::dialog_box::{Typewriter, complete_typing};
 use crate::style::{BubbleKind, Emotion};
@@ -337,9 +338,11 @@ pub(crate) struct AmbientBubble {
     owner: Entity,
 }
 
-/// Vertical gap (world units) between stacked choice balloons and above the speaker's head.
-const CHOICE_GAP: f32 = 0.12;
-const CHOICE_BASE: f32 = 0.15;
+/// Vertical gap (raster px at the reference glyph size of 40 px) between stacked choice balloons and
+/// above the speaker's head; scaled by the skin's `text_px / 40`. Texels, so the stack follows
+/// [`BalloonScale`](crate::BalloonScale) like the balloons do.
+const CHOICE_GAP_PX: f32 = 25.0;
+const CHOICE_BASE_PX: f32 = 31.0;
 /// Tint of a choice balloon until hovered, for a clickable affordance.
 const CHOICE_DIM: Color = Color::srgb(0.78, 0.78, 0.78);
 
@@ -474,7 +477,7 @@ pub(crate) fn present_current(
                 finish(&mut commands, &existing, &mut ended, id);
                 return;
             };
-            let prompt_height = spawn_line_bubble(
+            let prompt_height_px = spawn_line_bubble(
                 &mut commands,
                 &assets,
                 &mut images,
@@ -493,7 +496,9 @@ pub(crate) fn present_current(
             // columns hang off the same entity, so starting lower would draw option 1 across it.
             // Offsets apply along camera up, so clearing the prompt's own height is exactly the
             // screen-space separation needed.
-            let mut offset_y = CHOICE_BASE + prompt_height;
+            let glyph_k = skin.0.text_px / 40.0;
+            let gap_px = (CHOICE_GAP_PX * glyph_k).round();
+            let mut offset_y = (CHOICE_BASE_PX * glyph_k).round() + prompt_height_px;
             for (i, opt) in options.iter().enumerate() {
                 let rendered = build_bubble(
                     &assets,
@@ -513,13 +518,15 @@ pub(crate) fn present_current(
                 let mat = rendered.material.clone();
                 let mat_over = mat.clone();
                 let mat_out = mat.clone();
-                let center_offset = offset_y + rendered.size.y * 0.5;
+                let center_offset = offset_y + rendered.px.y as f32 * 0.5;
                 commands
                     .spawn((
                         Bubble {
                             owner,
-                            offset: Vec2::new(0.0, center_offset),
+                            offset: Vec2::ZERO,
                         },
+                        BubbleOffsetPx(Vec2::new(0.0, center_offset)),
+                        BubblePx(rendered.px),
                         ConversationEntity,
                         Pickable::default(),
                         Mesh3d(assets.quad.clone()),
@@ -546,7 +553,7 @@ pub(crate) fn present_current(
                             }
                         },
                     );
-                offset_y += rendered.size.y + CHOICE_GAP;
+                offset_y += rendered.px.y as f32 + gap_px;
             }
             active.advance_at = f32::INFINITY; // choices don't auto-advance
         }
@@ -782,6 +789,7 @@ pub(crate) fn release_bark(
             offset: Vec2::ZERO,
         },
         AmbientBubble { owner },
+        BubblePx(rendered.px),
         BubbleTtl {
             expires_at: now + dwell_secs(&bark.text),
         },
@@ -792,11 +800,12 @@ pub(crate) fn release_bark(
     ));
 }
 
-/// Spawn one balloon over `owner`, returning its **world-space size**.
+/// Spawn one balloon over `owner`, returning its **size in raster px**.
 ///
 /// The caller needs the size because a balloon's footprint is only known after rasterisation (the text
 /// wraps), and the `Choice` arm stacks its options clear of the prompt's height rather than at a fixed
-/// offset that cannot know it.
+/// offset that cannot know it. Texels, not world units: `track_bubbles` converts with the live
+/// `BalloonScale`.
 fn spawn_line_bubble(
     commands: &mut Commands,
     assets: &BubbleAssets,
@@ -812,13 +821,14 @@ fn spawn_line_bubble(
             owner,
             offset: Vec2::ZERO,
         },
+        BubblePx(rendered.px),
         ConversationEntity,
         Mesh3d(assets.quad.clone()),
         MeshMaterial3d(rendered.material),
         NotShadowCaster,
         Transform::from_scale(Vec3::new(rendered.size.x, rendered.size.y, 1.0)),
     ));
-    rendered.size
+    rendered.px.as_vec2()
 }
 
 #[cfg(test)]

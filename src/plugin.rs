@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use bevy::input::InputSystems;
 use bevy::prelude::*;
 
-use crate::balloon::{DefaultBalloonSkin, expire_bubbles, track_bubbles};
+use crate::balloon::{BalloonScale, DefaultBalloonSkin, expire_bubbles, track_bubbles};
 use crate::conversation::{
     Bark, BarkQueue, BarkSettings, ChoicePicked, ConversationEnded, DialogueScript, Presenter,
     Speakers, StartConversation, advance_line, choice_hotkeys, open_conversation, present_current,
@@ -27,7 +27,7 @@ pub struct DialogInputSet;
 /// control (see [`track_bubbles`]); the crate never guesses one.
 ///
 /// Registers [`StartConversation`], [`ChoicePicked`], [`ConversationEnded`] and [`Bark`], and inserts
-/// [`Speakers`], [`DialogueScript`], [`BarkQueue`], [`BarkSettings`], [`DefaultBalloonSkin`],
+/// [`Speakers`], [`DialogueScript`], [`BarkQueue`], [`BarkSettings`], [`DefaultBalloonSkin`], [`BalloonScale`],
 /// [`ChoiceFocus`] and [`Presenter::Balloons`] (insert your own after adding the plugin to override).
 /// The runtime runs in `PreUpdate` ([`DialogInputSet`]) and consumes the presses it uses; the cosmetic
 /// systems (typewriter, caret, balloon tracking and expiry) run in `Update`. It loads no font and no script: the host inserts
@@ -52,6 +52,7 @@ impl<C: Component> Plugin for SpeechBubblesPlugin<C> {
             .init_resource::<BarkQueue>()
             .init_resource::<BarkSettings>()
             .init_resource::<DefaultBalloonSkin>()
+            .init_resource::<BalloonScale>()
             .init_resource::<ChoiceFocus>()
             .insert_resource(Presenter::Balloons)
             // The runtime reads input and moves the conversation along in `PreUpdate`, right after

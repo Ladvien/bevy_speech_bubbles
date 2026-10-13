@@ -18,7 +18,7 @@
 use ab_glyph::FontArc;
 use bevy::prelude::*;
 use bevy_speech_bubbles::{
-    build_bubble, dwell_secs, expire_bubbles, track_bubbles, BalloonSkin, Bubble, BubbleAssets, BubbleKind,
+    build_bubble, dwell_secs, expire_bubbles, track_bubbles, BalloonSkin, Bubble, BubbleAssets, BubbleKind, BubblePx,
     BubbleStyle, BubbleTtl, Emotion,
 };
 
@@ -119,6 +119,8 @@ fn setup(
             // `track_bubbles` reads `scale.y` to work out how far above the head to sit.
             Transform::from_scale(Vec3::new(face.size.x, face.size.y, 1.0)),
             Bubble { owner, offset: Vec2::ZERO },
+            // The raster size: `track_bubbles` sizes the quad from it and the live `BalloonScale`.
+            BubblePx(face.px),
             // Ambient balloons time out on their own. Dwell scales with how much there is to read.
             BubbleTtl { expires_at: time.elapsed_secs() + dwell_secs(text) * 4.0 },
         ));

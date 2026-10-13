@@ -12,8 +12,10 @@ use bevy::time::Real;
 
 use crate::style::{BubbleKind, Emotion};
 
-// --- rasterization tuning (pixels) ---
-/// Glyph pixel scale. High enough that the baked texture stays crisp when the ortho camera zooms in.
+// --- rasterization tuning (pixels), at the reference glyph size `CAP_PX` ---
+// Every length below is scaled by `skin.text_px / CAP_PX` (and, in pixel mode, rounded to whole texels,
+// at least one): see `Metrics`. At the `crt()` skin's `text_px` of 40 they are used as written.
+/// The reference glyph size the constants below are written for, and the `crt()` skin's `text_px`.
 const CAP_PX: f32 = 40.0;
 /// Padding between text and the balloon edge.
 const PAD: f32 = 28.0;
@@ -31,9 +33,10 @@ const BORDER: f32 = 3.5;
 const SPEECH_RADIUS: f32 = 18.0;
 
 // --- world sizing ---
-/// World units per rasterized pixel. Sets the on-screen bubble scale (a ~570 px balloon ≈ 2.7 units).
+/// Default world units per rasterized pixel (a ~570 px balloon ≈ 2.7 units). See [`BalloonScale`].
 const WORLD_PER_PX: f32 = 1.0 / 210.0;
-/// Height above the owner's origin where the bubble's tail-tip sits (health bar is at Y=2.0).
+/// Default height above the owner's origin where the bubble's tail-tip sits (health bar is at Y=2.0).
+/// See [`BalloonScale`].
 pub const BUBBLE_ANCHOR_Y: f32 = 2.5;
 /// Nudge toward the camera so knee-walls / geometry don't clip the bubble (see `impact_fx.rs`).
 const CAMERA_NUDGE: f32 = 0.4;
@@ -55,6 +58,40 @@ pub fn dwell_secs(text: &str) -> f32 {
 pub struct Bubble {
     pub owner: Entity,
     pub offset: Vec2,
+}
+
+/// The balloon's raster size in texels. [`track_bubbles`] sets the quad's `Transform.scale` to
+/// `px * BalloonScale::world_per_px` every frame, so a host that changes the scale as its camera
+/// zooms resizes every live balloon. A bubble without this component keeps the scale it was spawned
+/// with.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BubblePx(pub UVec2);
+
+/// An in-plane offset (camera right/up) in texels, for stacking a choice menu. When present it
+/// replaces [`Bubble::offset`] and is converted to world units by [`BalloonScale`] every frame.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct BubbleOffsetPx(pub Vec2);
+
+/// How big balloons are in the host's world and how high they float. The host owns the units: a world
+/// in feet and one in metres want different values, and a zooming camera changes `world_per_px`.
+/// [`track_bubbles`] reads it every frame; [`SpeechBubblesPlugin`] inserts the default.
+///
+/// [`SpeechBubblesPlugin`]: crate::SpeechBubblesPlugin
+#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+pub struct BalloonScale {
+    /// World units per raster texel.
+    pub world_per_px: f32,
+    /// Height above the owner's translation where the balloon's bottom edge sits.
+    pub anchor_y: f32,
+}
+
+impl Default for BalloonScale {
+    fn default() -> Self {
+        Self {
+            world_per_px: WORLD_PER_PX,
+            anchor_y: BUBBLE_ANCHOR_Y,
+        }
+    }
 }
 
 /// Auto-expiry for ambient (non-modal) bubbles.
@@ -98,6 +135,10 @@ pub struct BalloonSkin {
     pub thought_fill: [u8; 4],
     /// Border of a [`BubbleKind::Thought`] balloon, RGBA, before the emotion tint.
     pub thought_border: [u8; 4],
+    /// Glyph size in raster pixels (the font's em). Padding, tail, border and corner radius scale with
+    /// it, so a pixel skin with the font's native size is one texel per font pixel. In pixel mode the
+    /// scaled lengths are rounded to whole texels, at least one.
+    pub text_px: f32,
 }
 
 impl BalloonSkin {
@@ -110,11 +151,13 @@ impl BalloonSkin {
             pixel: false,
             thought_fill: [8, 16, 22, 232],
             thought_border: [150, 210, 255, 240],
+            text_px: CAP_PX,
         }
     }
 
     /// Aged parchment, dark ink, hard pixel edges: the pixel-art look. Speech and thought share the
-    /// palette; the shape alone tells them apart.
+    /// palette; the shape alone tells them apart. `text_px` is 16, the native size of a 16 px pixel
+    /// font such as m6x11.
     pub const fn ink_on_paper() -> Self {
         Self {
             fill: [0xe8, 0xd9, 0xb0, 0xff],
@@ -123,6 +166,7 @@ impl BalloonSkin {
             pixel: true,
             thought_fill: [0xe8, 0xd9, 0xb0, 0xff],
             thought_border: [0x3a, 0x2a, 0x1e, 0xff],
+            text_px: 16.0,
         }
     }
 }
@@ -150,13 +194,20 @@ pub struct BubbleStyle {
     pub skin: BalloonSkin,
 }
 
-/// A freshly built bubble face: the material to put on the quad and the quad's world size.
+/// A freshly built bubble face: the material to put on the quad, its raster size and its world size
+/// at the default [`BalloonScale`].
+///
+/// Spawn the quad with [`BubblePx`]`(px)`: [`track_bubbles`] then sizes it from the live
+/// [`BalloonScale`] every frame, and `size` is only the starting `Transform.scale`.
 pub struct RenderedBubble {
     pub material: Handle<StandardMaterial>,
+    /// Image size in texels.
+    pub px: UVec2,
+    /// `px` at the default `world_per_px`; a host with its own [`BalloonScale`] ignores it.
     pub size: Vec2,
 }
 
-/// Build a bubble's material + world size from its text and style. Called once per line/choice (on
+/// Build a bubble's material + raster size from its text and style. Called once per line/choice (on
 /// change), not per frame.
 pub fn build_bubble(
     assets: &BubbleAssets,
@@ -190,33 +241,55 @@ pub fn build_bubble(
     });
     RenderedBubble {
         material,
+        px: UVec2::new(w, h),
         size: Vec2::new(w as f32 * WORLD_PER_PX, h as f32 * WORLD_PER_PX),
     }
 }
 
-/// Track every bubble to its owner: anchor above the head, face the camera, mirror visibility,
-/// despawn orphans. Cosmetic → `Update` (never pinned state). Copies the `health.rs` billboard.
+/// What [`track_bubbles`] reads and writes on a balloon.
+type TrackedBubble = (
+    Entity,
+    &'static Bubble,
+    Option<&'static BubblePx>,
+    Option<&'static BubbleOffsetPx>,
+    &'static mut Transform,
+    &'static mut Visibility,
+);
+
+/// Track every bubble to its owner: size the quad, anchor above the head, face the camera, mirror
+/// visibility, despawn orphans. Cosmetic → `Update` (never pinned state). Copies the `health.rs`
+/// billboard.
+///
+/// The size comes from [`BubblePx`] and the live [`BalloonScale`] (the default when the resource is
+/// absent), so changing the scale between frames resizes every balloon that has a [`BubblePx`].
 pub fn track_bubbles<C: Component>(
     mut commands: Commands,
     camera: Single<&GlobalTransform, With<C>>,
+    scale: Option<Res<BalloonScale>>,
     owners: Query<(&Transform, &Visibility), Without<Bubble>>,
-    mut bubbles: Query<(Entity, &Bubble, &mut Transform, &mut Visibility)>,
+    mut bubbles: Query<TrackedBubble>,
 ) {
+    let scale = scale.map_or_else(BalloonScale::default, |s| *s);
     let cam_rot = camera.rotation();
     let cam_pos = camera.translation();
     let up = cam_rot * Vec3::Y;
     let right = cam_rot * Vec3::X;
-    for (entity, bubble, mut tf, mut vis) in &mut bubbles {
+    for (entity, bubble, face, offset_px, mut tf, mut vis) in &mut bubbles {
         let Ok((owner_tf, owner_vis)) = owners.get(bubble.owner) else {
             commands.entity(entity).despawn();
             continue;
         };
-        let anchor = owner_tf.translation + Vec3::Y * BUBBLE_ANCHOR_Y;
+        if let Some(face) = face {
+            let size = face.0.as_vec2() * scale.world_per_px;
+            tf.scale = Vec3::new(size.x, size.y, 1.0);
+        }
+        let offset = offset_px.map_or(bubble.offset, |o| o.0 * scale.world_per_px);
+        let anchor = owner_tf.translation + Vec3::Y * scale.anchor_y;
         let half_h = tf.scale.y * 0.5;
         let toward = (cam_pos - anchor).normalize_or_zero();
         tf.translation = anchor
-            + up * (half_h + bubble.offset.y)
-            + right * bubble.offset.x
+            + up * (half_h + offset.y)
+            + right * offset.x
             + toward * CAMERA_NUDGE;
         tf.rotation = cam_rot;
         *vis = *owner_vis;
@@ -250,6 +323,48 @@ struct Palette {
     text: [u8; 4],
     /// Hard edges: coverage is 0 or 1, never between.
     pixel: bool,
+    /// Border thickness in raster px.
+    border_w: f32,
+}
+
+/// Every length of the raster, scaled to the skin's glyph size.
+///
+/// At `text_px == CAP_PX` the constants are used as written. In pixel mode each length is rounded to
+/// whole texels (at least one), so the border is a texel and the corners land on the grid.
+struct Metrics {
+    /// Glyph em in raster px.
+    cap: f32,
+    /// `text_px / CAP_PX`.
+    k: f32,
+    pad: f32,
+    margin: f32,
+    max_text_w: f32,
+    min_text_w: f32,
+    tail_h: f32,
+    border: f32,
+    radius: f32,
+}
+
+impl Metrics {
+    fn new(skin: &BalloonSkin) -> Self {
+        let cap = skin.text_px.max(1.0);
+        let k = cap / CAP_PX;
+        let sc = |v: f32| {
+            let s = v * k;
+            if skin.pixel { s.round().max(1.0) } else { s }
+        };
+        Self {
+            cap,
+            k,
+            pad: sc(PAD),
+            margin: sc(MARGIN),
+            max_text_w: sc(MAX_TEXT_W),
+            min_text_w: sc(MIN_TEXT_W),
+            tail_h: sc(TAIL_H),
+            border: sc(BORDER),
+            radius: sc(SPEECH_RADIUS),
+        }
+    }
 }
 
 impl Palette {
@@ -272,7 +387,7 @@ impl Palette {
     }
 }
 
-fn palette(style: &BubbleStyle) -> Palette {
+fn palette(style: &BubbleStyle, m: &Metrics) -> Palette {
     let skin = &style.skin;
     let (fill, base_border) = match style.kind {
         BubbleKind::Speech => (skin.fill, skin.border),
@@ -292,6 +407,7 @@ fn palette(style: &BubbleStyle) -> Palette {
         border,
         text: skin.text,
         pixel: skin.pixel,
+        border_w: m.border,
     }
 }
 
@@ -369,13 +485,13 @@ fn wrap_lines<F: Font>(sf: &impl ScaleFont<F>, text: &str, max_w: f32) -> Vec<St
 /// Split out of `rasterize` so it can be tested without a font: the property that matters is pure
 /// geometry, and requiring a `.ttf` to check it would mean not checking it. See
 /// `text_corners_stay_inside_the_balloon`.
-fn horizontal_pad(text_w: f32, text_h: f32, thought: bool) -> f32 {
-    let balloon_h = text_h + 2.0 * PAD;
+fn horizontal_pad(m: &Metrics, text_w: f32, text_h: f32, thought: bool) -> f32 {
+    let balloon_h = text_h + 2.0 * m.pad;
     // The worst point on the text block: its outer corner, relative to the balloon centre.
     let corner = Vec2::new(text_w * 0.5, text_h * 0.5);
     // Clear of the stroke, not merely inside the silhouette — a glyph touching the border reads as a
     // rendering fault even though it is technically within the shape.
-    let clear = BORDER + 4.0;
+    let clear = m.border + 4.0;
 
     // **Solved against the same SDF the renderer uses, rather than derived.** A closed form for this
     // is easy to get subtly wrong: the first attempt here engineered HORIZONTAL clearance, which on a
@@ -387,24 +503,24 @@ fn horizontal_pad(text_w: f32, text_h: f32, thought: bool) -> f32 {
         let r = if thought {
             half.y.min(half.x)
         } else {
-            SPEECH_RADIUS.min(half.x).min(half.y)
+            m.radius.min(half.x).min(half.y)
         };
         rounded_rect_sdf(corner, half, r) <= -clear
     };
 
     // A speech balloon's radius is fixed and small, so it almost always already fits and pays nothing.
-    if fits(PAD) {
-        return PAD;
+    if fits(m.pad) {
+        return m.pad;
     }
-    let mut lo = PAD;
-    let mut hi = PAD + text_h + clear;
+    let mut lo = m.pad;
+    let mut hi = m.pad + text_h + clear;
     // Widen until the upper bound genuinely fits, so the bisection below has a bracket. Bounded
     // rather than `while`, because a shape that never fits must not hang the caller.
     for _ in 0..8 {
         if fits(hi) {
             break;
         }
-        hi += text_h.max(PAD);
+        hi += text_h.max(m.pad);
     }
     for _ in 0..24 {
         let mid = 0.5 * (lo + hi);
@@ -415,19 +531,29 @@ fn horizontal_pad(text_w: f32, text_h: f32, thought: bool) -> f32 {
 
 /// Rasterize a bubble to RGBA8 bytes + dimensions.
 fn rasterize(font: &FontArc, style: &BubbleStyle, text: &str) -> (Vec<u8>, u32, u32) {
-    let pal = palette(style);
-    let sf = font.as_scaled(PxScale::from(CAP_PX));
-    let line_h = sf.height() + sf.line_gap();
+    let m = Metrics::new(&style.skin);
+    let pal = palette(style, &m);
+    let pixel = style.skin.pixel;
+    let sf = font.as_scaled(PxScale::from(m.cap));
+    let mut line_h = sf.height() + sf.line_gap();
+    let mut ascent = sf.ascent();
+    if pixel {
+        line_h = line_h.round().max(1.0);
+        ascent = ascent.round();
+    }
 
-    let lines = wrap_lines(&sf, text, MAX_TEXT_W);
-    let text_w = lines
+    let lines = wrap_lines(&sf, text, m.max_text_w);
+    let mut text_w = lines
         .iter()
         .map(|l| measure(&sf, l))
         .fold(0.0_f32, f32::max)
-        .max(MIN_TEXT_W);
+        .max(m.min_text_w);
+    if pixel {
+        text_w = text_w.ceil();
+    }
     let text_h = line_h * lines.len() as f32;
 
-    let balloon_h = text_h + 2.0 * PAD;
+    let balloon_h = text_h + 2.0 * m.pad;
     let thought = matches!(style.kind, BubbleKind::Thought);
 
     // **Horizontal padding has to clear the corner arc, not just the flat edge.**
@@ -435,27 +561,30 @@ fn rasterize(font: &FontArc, style: &BubbleStyle, text: &str) -> (Vec<u8>, u32, 
     // A thought balloon is a pill: its radius is half the balloon height, so the left and right caps
     // are semicircles that curve inward by `r - sqrt(r^2 - dy^2)` at distance `dy` above and below the
     // centre line. The text block's top and bottom corners sit at `dy = text_h/2`, which is exactly
-    // where that inset is largest — so a flat `PAD` is only enough while the balloon is short.
+    // where that inset is largest — so a flat `pad` is only enough while the balloon is short.
     //
     // Measured, before this existed: one line cleared it with 11px to spare, two lines overflowed the
     // cap by ~5px and three by ~23px, which is why the clipping looked intermittent rather than broken.
-    // Speech balloons need it too, just less: their radius is a fixed `SPEECH_RADIUS`.
-    let pad_x = horizontal_pad(text_w, text_h, thought);
+    // Speech balloons need it too, just less: their radius is a fixed `radius`.
+    let mut pad_x = horizontal_pad(&m, text_w, text_h, thought);
+    if pixel {
+        pad_x = pad_x.ceil();
+    }
     let balloon_w = text_w + 2.0 * pad_x;
-    let tail_h = if style.tail { TAIL_H } else { 0.0 };
-    let img_w = (balloon_w + 2.0 * MARGIN).ceil() as u32;
-    let img_h = (balloon_h + 2.0 * MARGIN + tail_h).ceil() as u32;
+    let tail_h = if style.tail { m.tail_h } else { 0.0 };
+    let img_w = (balloon_w + 2.0 * m.margin).ceil() as u32;
+    let img_h = (balloon_h + 2.0 * m.margin + tail_h).ceil() as u32;
 
     let mut buf = vec![0u8; (img_w * img_h * 4) as usize];
 
     // Balloon body.
-    let cx = MARGIN + balloon_w / 2.0;
-    let cy = MARGIN + balloon_h / 2.0;
+    let cx = m.margin + balloon_w / 2.0;
+    let cy = m.margin + balloon_h / 2.0;
     let half = Vec2::new(balloon_w / 2.0, balloon_h / 2.0);
     let radius = if thought {
         (balloon_h * 0.5).min(balloon_w * 0.5) // pill
     } else {
-        SPEECH_RADIUS.min(half.x).min(half.y)
+        m.radius.min(half.x).min(half.y)
     };
     for py in 0..img_h {
         for px in 0..img_w {
@@ -465,7 +594,7 @@ fn rasterize(font: &FontArc, style: &BubbleStyle, text: &str) -> (Vec<u8>, u32, 
             if outer <= 0.0 {
                 continue;
             }
-            if d >= -BORDER {
+            if d >= -m.border {
                 blend(&mut buf, img_w, img_h, px as i32, py as i32, pal.border, outer);
             } else {
                 blend(&mut buf, img_w, img_h, px as i32, py as i32, pal.fill, 1.0);
@@ -473,26 +602,29 @@ fn rasterize(font: &FontArc, style: &BubbleStyle, text: &str) -> (Vec<u8>, u32, 
         }
     }
 
-    // Tail toward the owner (below the balloon).
+    // Tail toward the owner (below the balloon). Its geometry is written at the reference size and
+    // scaled with the glyphs.
     if style.tail {
-        let base_y = MARGIN + balloon_h;
+        let k = m.k;
+        let base_y = m.margin + balloon_h;
         if thought {
             // Trailing shrinking dots — the classic thought tail.
-            draw_disc(&mut buf, img_w, img_h, cx, base_y + 7.0, 8.0, &pal);
-            draw_disc(&mut buf, img_w, img_h, cx - 4.0, base_y + 18.0, 5.0, &pal);
-            draw_disc(&mut buf, img_w, img_h, cx - 8.0, base_y + 26.0, 3.0, &pal);
+            draw_disc(&mut buf, img_w, img_h, cx, base_y + 7.0 * k, 8.0 * k, &pal);
+            draw_disc(&mut buf, img_w, img_h, cx - 4.0 * k, base_y + 18.0 * k, 5.0 * k, &pal);
+            draw_disc(&mut buf, img_w, img_h, cx - 8.0 * k, base_y + 26.0 * k, 3.0 * k, &pal);
         } else {
             // Pointed speech tail.
-            let a = Vec2::new(cx - 14.0, base_y - 2.0);
-            let b = Vec2::new(cx + 14.0, base_y - 2.0);
-            let tip = Vec2::new(cx - 6.0, base_y + TAIL_H);
+            let a = Vec2::new(cx - 14.0 * k, base_y - 2.0 * k);
+            let b = Vec2::new(cx + 14.0 * k, base_y - 2.0 * k);
+            let tip = Vec2::new(cx - 6.0 * k, base_y + m.tail_h);
             draw_triangle(&mut buf, img_w, img_h, a, b, tip, &pal);
         }
     }
 
-    // Text glyphs, top-down.
-    let left = MARGIN + pad_x;
-    let mut baseline = MARGIN + PAD + sf.ascent();
+    // Text glyphs, top-down. A pixel skin puts every glyph on a whole texel.
+    let snap = |v: f32| if pixel { v.round() } else { v };
+    let left = m.margin + pad_x;
+    let mut baseline = m.margin + m.pad + ascent;
     for line in &lines {
         let mut caret = left;
         let mut prev = None;
@@ -502,7 +634,7 @@ fn rasterize(font: &FontArc, style: &BubbleStyle, text: &str) -> (Vec<u8>, u32, 
                 caret += sf.kern(p, id);
             }
             let mut glyph = sf.scaled_glyph(c);
-            glyph.position = point(caret, baseline);
+            glyph.position = point(snap(caret), snap(baseline));
             if let Some(outline) = sf.outline_glyph(glyph) {
                 let bounds = outline.px_bounds();
                 outline.draw(|gx, gy, cov| {
@@ -533,7 +665,7 @@ fn draw_disc(buf: &mut [u8], w: u32, h: u32, cx: f32, cy: f32, r: f32, pal: &Pal
             if outer <= 0.0 {
                 continue;
             }
-            if d >= -BORDER {
+            if d >= -pal.border_w {
                 blend(buf, w, h, x, y, pal.border, outer);
             } else {
                 blend(buf, w, h, x, y, pal.fill, 1.0);
@@ -567,7 +699,7 @@ fn draw_triangle(buf: &mut [u8], w: u32, h: u32, a: Vec2, b: Vec2, c: Vec2, pal:
             let d1 = w1 / (c - a).length();
             let d2 = w2 / (a - b).length();
             let edge_dist = d0.min(d1).min(d2);
-            let col = if edge_dist <= BORDER { pal.border } else { pal.fill };
+            let col = if edge_dist <= pal.border_w { pal.border } else { pal.fill };
             blend(buf, w, h, x, y, col, 1.0);
         }
     }
@@ -587,7 +719,7 @@ mod tests {
     /// **The clipping bug, pinned as geometry.**
     ///
     /// A thought balloon is a pill, so its cap curves inward by `r - sqrt(r^2 - dy^2)` at the text
-    /// block's top and bottom corners. With a flat `PAD` that was fine for one line and wrong for
+    /// block's top and bottom corners. With a flat pad that was fine for one line and wrong for
     /// three: measured overflow was ~5px at two lines and ~23px at three, which is why the clipping
     /// read as intermittent rather than as a bug.
     ///
@@ -595,27 +727,33 @@ mod tests {
     /// fill, clear of the border — for both shapes at one through four lines.
     #[test]
     fn text_corners_stay_inside_the_balloon() {
-        for lines in 1..=4 {
-            for thought in [false, true] {
-                let text_w = 300.0;
-                let text_h = 56.0 * lines as f32;
-                let pad = horizontal_pad(text_w, text_h, thought);
-                let balloon_w = text_w + 2.0 * pad;
-                let balloon_h = text_h + 2.0 * PAD;
-                let half = Vec2::new(balloon_w * 0.5, balloon_h * 0.5);
-                let radius = if thought {
-                    (balloon_h * 0.5).min(balloon_w * 0.5)
-                } else {
-                    SPEECH_RADIUS.min(half.x).min(half.y)
-                };
-                // The outer corner of the text block, relative to the balloon centre.
-                let corner = Vec2::new(text_w * 0.5, text_h * 0.5);
-                let d = rounded_rect_sdf(corner, half, radius);
-                assert!(
-                    d < -BORDER,
-                    "lines={lines} thought={thought}: text corner sits at sdf {d:.2}, which is not \
-                     clear of the {BORDER}px border — glyphs there draw over the outline or outside it"
-                );
+        // The reference (crt) metrics and a pixel skin at its native size: the property is the same.
+        for skin in [BalloonSkin::crt(), BalloonSkin::ink_on_paper()] {
+            let m = Metrics::new(&skin);
+            for lines in 1..=4 {
+                for thought in [false, true] {
+                    let text_w = 300.0 * m.k;
+                    let text_h = 56.0 * m.k * lines as f32;
+                    let pad = horizontal_pad(&m, text_w, text_h, thought);
+                    let balloon_w = text_w + 2.0 * pad;
+                    let balloon_h = text_h + 2.0 * m.pad;
+                    let half = Vec2::new(balloon_w * 0.5, balloon_h * 0.5);
+                    let radius = if thought {
+                        (balloon_h * 0.5).min(balloon_w * 0.5)
+                    } else {
+                        m.radius.min(half.x).min(half.y)
+                    };
+                    // The outer corner of the text block, relative to the balloon centre.
+                    let corner = Vec2::new(text_w * 0.5, text_h * 0.5);
+                    let d = rounded_rect_sdf(corner, half, radius);
+                    assert!(
+                        d < -m.border,
+                        "pixel={} lines={lines} thought={thought}: text corner sits at sdf {d:.2}, which \
+                         is not clear of the {}px border — glyphs there draw over the outline or outside it",
+                        skin.pixel,
+                        m.border
+                    );
+                }
             }
         }
     }
@@ -624,9 +762,11 @@ mod tests {
     /// single-line balloon must not get silently fatter for nothing.
     #[test]
     fn one_line_pays_nothing_for_the_fix() {
-        assert_eq!(horizontal_pad(300.0, 56.0, true), PAD);
-        assert_eq!(horizontal_pad(300.0, 56.0, false), PAD);
-        assert!(horizontal_pad(300.0, 168.0, true) > PAD, "three lines must widen the pill");
+        let m = Metrics::new(&BalloonSkin::crt());
+        assert_eq!(m.pad, PAD, "crt metrics are the reference constants");
+        assert_eq!(horizontal_pad(&m, 300.0, 56.0, true), PAD);
+        assert_eq!(horizontal_pad(&m, 300.0, 56.0, false), PAD);
+        assert!(horizontal_pad(&m, 300.0, 168.0, true) > PAD, "three lines must widen the pill");
     }
 
     #[test]
@@ -762,5 +902,132 @@ mod tests {
             rgba.as_chunks::<4>().0.contains(&[242, 74, 58, 255]),
             "no texel carries the anger tint"
         );
+    }
+
+    // ----- pixel scale -----
+
+    /// **A 16 px pixel balloon is pixel-art sized**: one texel per font pixel, a one-texel border, a few
+    /// texels of padding. 20 characters of a 16 px, 0.6 em-advance face (192 texels of text) come out a
+    /// little over 200 wide and under 50 tall, and every texel is solid or clear.
+    #[test]
+    fn a_pixel_balloon_is_native_size() {
+        let font = test_font();
+        let skin = BalloonSkin::ink_on_paper();
+        assert_eq!(skin.text_px, 16.0);
+        let (rgba, w, h) = rasterize(&font, &styled(BubbleKind::Speech, false, skin), "Hold the gate at dwn");
+        assert!((150..=240).contains(&w), "width {w} texels is not about 20 chars at 16 px");
+        assert!((26..=50).contains(&h), "height {h} texels is not one pixel-font line");
+        assert!(rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 0 || px[3] == 255));
+
+        // The hi-res skin is more than twice that.
+        let (_, hw, hh) = rasterize(&font, &styled(BubbleKind::Speech, false, BalloonSkin::crt()), "Hold the gate at dwn");
+        assert!(hw > 2 * w && hh > 2 * h, "crt {hw}x{hh} vs pixel {w}x{h}");
+
+        // The border is one texel thick on the top edge of the middle column.
+        let m = Metrics::new(&skin);
+        assert_eq!(m.border, 1.0);
+        let x = (w / 2) as usize;
+        let col: Vec<[u8; 4]> = (0..h as usize)
+            .map(|y| {
+                let i = (y * w as usize + x) * 4;
+                [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+            })
+            .collect();
+        let first = col.iter().position(|p| p[3] == 255).expect("a solid texel");
+        assert_eq!(col[first][..3], skin.border[..3], "the outermost texel is the border");
+        assert_eq!(col[first + 1][..3], skin.fill[..3], "and only one texel thick");
+    }
+
+    /// The tail and the thought dots scale with the glyphs too: a pixel balloon with a tail is the
+    /// no-tail one plus a few texels, not 28.
+    #[test]
+    fn a_pixel_tail_is_small() {
+        let font = test_font();
+        let skin = BalloonSkin::ink_on_paper();
+        for kind in [BubbleKind::Speech, BubbleKind::Thought] {
+            let (_, w0, h0) = rasterize(&font, &styled(kind, false, skin), "Hi there");
+            let (rgba, w1, h1) = rasterize(&font, &styled(kind, true, skin), "Hi there");
+            assert_eq!(w0, w1);
+            assert!((1..=14).contains(&(h1 - h0)), "{kind:?}: the tail adds {} texels", h1 - h0);
+            assert!(rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 0 || px[3] == 255));
+        }
+    }
+
+    // ----- BalloonScale -----
+
+    #[derive(Component)]
+    struct Cam;
+
+    /// `track_bubbles` reads the scale every frame: change it and a live balloon is resized and
+    /// re-anchored, with no respawn.
+    #[test]
+    fn track_bubbles_follows_a_change_of_balloon_scale() {
+        let mut app = App::new();
+        app.add_systems(Update, track_bubbles::<Cam>)
+            .insert_resource(BalloonScale {
+                world_per_px: 0.01,
+                anchor_y: 2.0,
+            });
+        // Far down +Z, so the nudge toward the camera is almost horizontal.
+        app.world_mut()
+            .spawn((Cam, GlobalTransform::from(Transform::from_xyz(5.0, 1.0, 1000.0))));
+        let owner = app
+            .world_mut()
+            .spawn((Transform::from_xyz(5.0, 1.0, 0.0), Visibility::default()))
+            .id();
+        let balloon = app
+            .world_mut()
+            .spawn((
+                Bubble {
+                    owner,
+                    offset: Vec2::ZERO,
+                },
+                BubblePx(UVec2::new(100, 40)),
+                BubbleOffsetPx(Vec2::new(0.0, 10.0)),
+                Transform::default(),
+                Visibility::default(),
+            ))
+            .id();
+
+        app.update();
+        let tf = *app.world().get::<Transform>(balloon).expect("balloon");
+        assert!((tf.scale.x - 1.0).abs() < 1e-5 && (tf.scale.y - 0.4).abs() < 1e-5, "{:?}", tf.scale);
+        // anchor 1 + 2, then half height 0.2 and the 10 px offset (0.1) up, the camera looks down -Z.
+        assert!((tf.translation.y - (3.0 + 0.2 + 0.1)).abs() < 0.01, "{:?}", tf.translation);
+
+        *app.world_mut().resource_mut::<BalloonScale>() = BalloonScale {
+            world_per_px: 0.02,
+            anchor_y: 3.0,
+        };
+        app.update();
+        let tf = *app.world().get::<Transform>(balloon).expect("balloon");
+        assert!((tf.scale.x - 2.0).abs() < 1e-5 && (tf.scale.y - 0.8).abs() < 1e-5, "{:?}", tf.scale);
+        assert!((tf.translation.y - (4.0 + 0.4 + 0.2)).abs() < 0.01, "{:?}", tf.translation);
+    }
+
+    /// A bubble without a `BubblePx` (a host that spawns its own quads) keeps the scale it was given.
+    #[test]
+    fn a_bubble_without_a_raster_size_keeps_its_scale() {
+        let mut app = App::new();
+        app.add_systems(Update, track_bubbles::<Cam>);
+        app.world_mut().spawn((Cam, GlobalTransform::default()));
+        let owner = app
+            .world_mut()
+            .spawn((Transform::default(), Visibility::default()))
+            .id();
+        let balloon = app
+            .world_mut()
+            .spawn((
+                Bubble {
+                    owner,
+                    offset: Vec2::ZERO,
+                },
+                Transform::from_scale(Vec3::new(3.0, 1.0, 1.0)),
+                Visibility::default(),
+            ))
+            .id();
+        app.update();
+        let tf = app.world().get::<Transform>(balloon).expect("balloon");
+        assert_eq!(tf.scale, Vec3::new(3.0, 1.0, 1.0));
     }
 }
