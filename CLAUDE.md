@@ -21,7 +21,7 @@ This repository, [`Ladvien/bevy_speech_bubbles`](https://github.com/Ladvien/bevy
 - `src/lib.rs` — crate docs and re-exports.
 - `src/balloon.rs` — the rasterizer, `BalloonSkin`, `BubbleStyle`, `build_bubble`, `track_bubbles::<C>`, `expire_bubbles`, `dwell_secs`.
 - `src/style.rs` — `BubbleKind`, `Emotion`.
-- `src/conversation.rs` — the model (`DialogueScript`, `Conversation`, `Node`, `Choice`, `validate_script`), `Speakers`, `Presenter`, the messages, `Active` (private), the balloon presenter, `Bark`, `BarkQueue`, `BarkSettings`.
+- `src/conversation.rs` — the model (`DialogueScript`, `Conversation`, `Node`, `Choice`, `validate_script`), `Speakers`, `Presenter`, the messages (`DialogueNodeEntered` included, written at the three cursor moves: open, advance, choice), `Active` (private), the balloon presenter, `Bark`, `BarkQueue`, `BarkSettings`.
 - `src/dialog_box.rs` — `DialogSkin`, the screen box, typewriter, caret, choices.
 - `src/plugin.rs` — `SpeechBubblesPlugin<C>`.
 - `tests/leaf.rs` — the boundary ratchet. `tests/walk.rs` — the headless walk through the plugin. `tests/data/` — a test font.

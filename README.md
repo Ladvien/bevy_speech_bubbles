@@ -11,7 +11,7 @@ This repository is canonical: MIT OR Apache-2.0, Bevy 0.20, and it co-evolves wi
 ## What is in it
 
 - **Balloons** (`balloon`): `build_bubble`, `track_bubbles::<C>`, `expire_bubbles`, and a `BalloonSkin` for the palette. `BalloonSkin::crt()` is the phosphor look; `BalloonSkin::ink_on_paper()` is parchment with hard pixel edges (`pixel: true` draws without anti-aliasing and uses a nearest sampler).
-- **A conversation kit** (`conversation`): a `DialogueScript` of named `Conversation`s, each a graph of `Node::Line` and `Node::Choice`, `validate_script`, and a runtime driven by the messages `StartConversation`, `ChoicePicked` and `ConversationEnded`. The model is `serde`: load it from YAML or RON. Speakers are strings the host resolves through `Speakers`. `Bark`s are paced one-off balloons.
+- **A conversation kit** (`conversation`): a `DialogueScript` of named `Conversation`s, each a graph of `Node::Line` and `Node::Choice`, `validate_script`, and a runtime driven by the messages `StartConversation`, `ChoicePicked` and `ConversationEnded`. `DialogueNodeEntered` is written each time the cursor moves onto a node (the start, after each line, after each choice), so a host can attach effects to it. The model is `serde`: load it from YAML or RON. Speakers are strings the host resolves through `Speakers`. `Bark`s are paced one-off balloons.
 - **A screen dialog box** (`dialog_box`): Bevy UI nodes skinned by `DialogSkin` (9-sliced frame, tiled paper, name tag, portrait, caret), with a typewriter, a pop on each line, and choices you can click, hover, arrow through, or pick with the number keys.
 - **`SpeechBubblesPlugin::<C>`**: wires the three together, generic over the marker of the camera balloons face.
 

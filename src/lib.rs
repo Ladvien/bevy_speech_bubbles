@@ -9,7 +9,7 @@
 //!   draws it without anti-aliasing for pixel-art games.
 //! * **A conversation graph** ([`conversation`]): authored lines and choices ([`DialogueScript`],
 //!   serde-loadable from YAML or RON), a runtime that walks them ([`StartConversation`],
-//!   [`ChoicePicked`], [`ConversationEnded`], [`ConversationLock`]), and paced one-off [`Bark`]s.
+//!   [`ChoicePicked`], [`ConversationEnded`], [`DialogueNodeEntered`], [`ConversationLock`]), and paced one-off [`Bark`]s.
 //! * **A screen dialog box** ([`dialog_box`]): a Bevy UI surface skinned by the host's [`DialogSkin`],
 //!   with a typewriter, a blinking caret, a name tag, a portrait and clickable, keyboard-navigable
 //!   choices. [`Presenter`] picks balloons or box for conversations; barks are always balloons.
@@ -66,8 +66,8 @@ pub use balloon::{
 };
 pub use conversation::{
     Bark, BarkQueue, BarkSettings, Choice, ChoicePicked, Conversation, ConversationEnded,
-    ConversationLock, DialogueScript, Node, Presenter, Speaker, Speakers, StartConversation,
-    validate_script,
+    ConversationLock, DialogueNodeEntered, DialogueScript, Node, Presenter, Speaker, Speakers,
+    StartConversation, validate_script,
 };
 pub use dialog_box::{ChoiceFocus, DEFAULT_CHARS_PER_SECOND, DIALOG_Z, DialogSkin};
 pub use plugin::{DialogInputSet, SpeechBubblesPlugin};
