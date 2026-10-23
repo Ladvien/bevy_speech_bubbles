@@ -213,6 +213,15 @@ pub struct ConversationEnded {
     pub id: String,
 }
 
+/// The conversation cursor moved onto `node` of `conversation` — at the start node, after a line
+/// advances, and after a choice resolves. Written once per node, before it is presented. Hosts attach
+/// effects (a relationship change, a quest flag) to the node a choice leads to.
+#[derive(Message, Debug, Clone, PartialEq, Eq)]
+pub struct DialogueNodeEntered {
+    pub conversation: String,
+    pub node: String,
+}
+
 /// Present while a conversation is active. Hosts yield the click and pause the simulation on it.
 #[derive(Resource, Debug)]
 pub struct ConversationLock;
@@ -355,6 +364,7 @@ pub(crate) fn open_conversation(
     mut starts: MessageReader<StartConversation>,
     active: Option<Res<Active>>,
     script: Res<DialogueScript>,
+    mut entered: MessageWriter<DialogueNodeEntered>,
 ) {
     // One conversation at a time; take the first request and drain the rest of the queue.
     let id = {
@@ -372,10 +382,14 @@ pub(crate) fn open_conversation(
         return;
     };
     commands.insert_resource(Active {
-        conv: id,
+        conv: id.clone(),
         node: conv.start.clone(),
         presented: false,
         advance_at: 0.0,
+    });
+    entered.write(DialogueNodeEntered {
+        conversation: id.clone(),
+        node: conv.start.clone(),
     });
     commands.insert_resource(ConversationLock);
 }
@@ -576,6 +590,7 @@ pub(crate) fn advance_line(
     existing: Query<Entity, With<ConversationEntity>>,
     mut typewriters: Query<&mut Typewriter>,
     mut ended: MessageWriter<ConversationEnded>,
+    mut entered: MessageWriter<DialogueNodeEntered>,
 ) {
     let Some(mut active) = active else {
         return;
@@ -611,6 +626,10 @@ pub(crate) fn advance_line(
     }
     match next {
         Some(n) => {
+            entered.write(DialogueNodeEntered {
+                conversation: active.conv.clone(),
+                node: n.clone(),
+            });
             active.node = n;
             active.presented = false;
         }
@@ -670,6 +689,7 @@ pub(crate) fn resolve_choice(
     mut picks: MessageReader<ChoicePicked>,
     active: Option<ResMut<Active>>,
     script: Res<DialogueScript>,
+    mut entered: MessageWriter<DialogueNodeEntered>,
 ) {
     let Some(mut active) = active else {
         picks.clear();
@@ -693,6 +713,10 @@ pub(crate) fn resolve_choice(
         _ => return,
     };
     if let Some(n) = next {
+        entered.write(DialogueNodeEntered {
+            conversation: active.conv.clone(),
+            node: n.clone(),
+        });
         active.node = n;
         active.presented = false;
     }
@@ -978,6 +1002,7 @@ mod tests {
         let mut app = App::new();
         app.add_message::<ChoicePicked>()
             .add_message::<ConversationEnded>()
+            .add_message::<DialogueNodeEntered>()
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<Time<Real>>()

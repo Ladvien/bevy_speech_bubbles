@@ -1,6 +1,6 @@
 [package]
 name = "bevy_speech_bubbles"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Dialog kit for Bevy: world-space speech and thought balloons (CPU ab_glyph raster on a billboarded quad), a conversation graph and runtime, barks, and a skinnable screen dialog box."
 license = "MIT OR Apache-2.0"

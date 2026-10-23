@@ -8,9 +8,9 @@ use bevy::prelude::*;
 
 use crate::balloon::{BalloonScale, DefaultBalloonSkin, expire_bubbles, track_bubbles};
 use crate::conversation::{
-    Bark, BarkQueue, BarkSettings, ChoicePicked, ConversationEnded, DialogueScript, Presenter,
-    Speakers, StartConversation, advance_line, choice_hotkeys, open_conversation, present_current,
-    queue_barks, release_bark, resolve_choice,
+    Bark, BarkQueue, BarkSettings, ChoicePicked, ConversationEnded, DialogueNodeEntered,
+    DialogueScript, Presenter, Speakers, StartConversation, advance_line, choice_hotkeys,
+    open_conversation, present_current, queue_barks, release_bark, resolve_choice,
 };
 use crate::dialog_box::{
     ChoiceFocus, animate_box, caret_blink, choice_focus_input, paint_choices, present_dialog_box,
@@ -26,7 +26,7 @@ pub struct DialogInputSet;
 /// Dialog kit plugin. `C` is the marker component of the camera the balloons face — name a marker you
 /// control (see [`track_bubbles`]); the crate never guesses one.
 ///
-/// Registers [`StartConversation`], [`ChoicePicked`], [`ConversationEnded`] and [`Bark`], and inserts
+/// Registers [`StartConversation`], [`ChoicePicked`], [`ConversationEnded`], [`DialogueNodeEntered`] and [`Bark`], and inserts
 /// [`Speakers`], [`DialogueScript`], [`BarkQueue`], [`BarkSettings`], [`DefaultBalloonSkin`], [`BalloonScale`],
 /// [`ChoiceFocus`] and [`Presenter::Balloons`] (insert your own after adding the plugin to override).
 /// The runtime runs in `PreUpdate` ([`DialogInputSet`]) and consumes the presses it uses; the cosmetic
@@ -46,6 +46,7 @@ impl<C: Component> Plugin for SpeechBubblesPlugin<C> {
         app.add_message::<StartConversation>()
             .add_message::<ChoicePicked>()
             .add_message::<ConversationEnded>()
+            .add_message::<DialogueNodeEntered>()
             .add_message::<Bark>()
             .init_resource::<Speakers>()
             .init_resource::<DialogueScript>()

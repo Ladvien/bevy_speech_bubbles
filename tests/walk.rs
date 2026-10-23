@@ -7,9 +7,9 @@
 
 use bevy::prelude::*;
 use bevy_speech_bubbles::{
-    Bark, BarkSettings, BubbleAssets, ConversationEnded, ConversationLock, DialogInputSet, DialogSkin,
-    DialogueScript, Presenter, Speaker, Speakers, SpeechBubblesPlugin, StartConversation,
-    validate_script,
+    Bark, BarkSettings, BubbleAssets, ConversationEnded, ConversationLock, DialogInputSet,
+    DialogSkin, DialogueNodeEntered, DialogueScript, Presenter, Speaker, Speakers,
+    SpeechBubblesPlugin, StartConversation, validate_script,
 };
 
 #[derive(Component)]
@@ -28,6 +28,26 @@ const SCRIPT: &str = r#"
         ]),
         "left": Line(speaker: "narrator", text: "Left.", next: None),
         "opened": Line(speaker: "narrator", text: "It creaks.", next: None),
+      },
+    ),
+  },
+)
+"#;
+
+/// Three nodes, named for the test: a start line, a choice whose second option leads to `y`, and two ends.
+const NODES: &str = r#"
+(
+  conversations: {
+    "t": (
+      start: "start",
+      nodes: {
+        "start": Line(speaker: "narrator", text: "Hello.", next: Some("ask")),
+        "ask": Choice(speaker: "narrator", prompt: "Open it?", options: [
+          (text: "Leave it", next: "x"),
+          (text: "Open it", next: "y"),
+        ]),
+        "x": Line(speaker: "narrator", text: "Left.", next: None),
+        "y": Line(speaker: "narrator", text: "It creaks.", next: None),
       },
     ),
   },
@@ -60,6 +80,10 @@ fn skin() -> DialogSkin {
 }
 
 fn app() -> App {
+    app_with(SCRIPT)
+}
+
+fn app_with(src: &str) -> App {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .init_asset::<Image>()
@@ -69,7 +93,7 @@ fn app() -> App {
         .init_resource::<ButtonInput<MouseButton>>()
         .add_plugins(SpeechBubblesPlugin::<TestCamera>::default());
 
-    let script: DialogueScript = ron::from_str(SCRIPT).expect("script parses");
+    let script: DialogueScript = ron::from_str(src).expect("script parses");
     validate_script(&script).expect("script validates");
     app.insert_resource(script)
         .insert_resource(Presenter::DialogBox)
@@ -149,6 +173,43 @@ fn a_conversation_walks_on_the_keyboard_and_ends() {
     assert_eq!(ended(&mut app), vec!["t".to_string()]);
     assert!(app.world().get_resource::<ConversationLock>().is_none());
     assert!(texts(&mut app).is_empty(), "the dialog box outlived its conversation");
+}
+
+/// Every `DialogueNodeEntered` written since the last call, as `(conversation, node)`.
+fn entered(app: &mut App) -> Vec<(String, String)> {
+    app.world_mut()
+        .resource_mut::<Messages<DialogueNodeEntered>>()
+        .drain()
+        .map(|e| (e.conversation, e.node))
+        .collect()
+}
+
+/// The cursor reports each node it lands on, in order, so a host can hang an effect on the node a choice leads to.
+#[test]
+fn the_cursor_announces_every_node_it_enters() {
+    let mut app = app_with(NODES);
+    start(&mut app);
+    let mut seen = entered(&mut app);
+    tap(&mut app, KeyCode::Space);
+    seen.extend(entered(&mut app));
+    tap(&mut app, KeyCode::Digit2);
+    seen.extend(entered(&mut app));
+    tap(&mut app, KeyCode::Space);
+    seen.extend(entered(&mut app));
+    let t = |node: &str| ("t".to_string(), node.to_string());
+    assert_eq!(seen, vec![t("start"), t("ask"), t("y")]);
+}
+
+/// A pick past the last option leads nowhere, so it announces no node and the conversation stays open.
+#[test]
+fn a_pick_past_the_last_option_announces_nothing() {
+    let mut app = app_with(NODES);
+    start(&mut app);
+    tap(&mut app, KeyCode::Space);
+    assert_eq!(entered(&mut app).len(), 2, "start and ask should have been announced");
+    tap(&mut app, KeyCode::Digit3);
+    assert!(entered(&mut app).is_empty(), "a pick past the last option announced a node");
+    assert!(ended(&mut app).is_empty(), "a pick past the last option ended the conversation");
 }
 
 /// One box is reused across nodes (it pops, it is not respawned), so a conversation never flickers.
