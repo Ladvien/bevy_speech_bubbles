@@ -2,12 +2,14 @@
 name = "bevy_speech_bubbles"
 version = "0.2.1"
 edition = "2024"
+rust-version = "1.97.1"
 description = "Dialog kit for Bevy: world-space speech and thought balloons (CPU ab_glyph raster on a billboarded quad), a conversation graph and runtime, barks, and a skinnable screen dialog box."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Ladvien/bevy_speech_bubbles"
 keywords = ["bevy", "gamedev", "dialogue", "billboard", "text"]
 categories = ["game-development"]
-publish = false
+# `docs/` holds the chatter GIF, so it is out of the package.
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE-*"]
 
 [dependencies]
 # The umbrella with defaults off. The balloons need Image + StandardMaterial + Mesh + Transform; the
