@@ -2,7 +2,7 @@
 
 A dialog kit for Bevy 0.20: world-space speech and thought balloons, a conversation graph with a runtime, paced barks, and a skinnable screen dialog box.
 
-![Five coloured figures standing in a ring while the camera orbits; speech balloons with pointed tails and thought balloons with dot-tails appear above them and fade, each holding its face toward the camera](docs/chatter.gif)
+![Five coloured figures standing in a ring while the camera orbits; speech balloons with pointed tails and thought balloons with dot-tails appear above them and fade, each holding its face toward the camera](https://raw.githubusercontent.com/Ladvien/bevy_speech_bubbles/main/docs/chatter.gif)
 
 That is `examples/chatter.rs`. The balloons are **quads in the scene**, not a UI layer: they hold a world position above their owner, they can be occluded, and they turn because `track_bubbles` turns them. Two shapes carry the channel (a tailed balloon for what is said aloud, a soft pill with a dot-tail for what is only thought) and the border tint carries the affect.
 
