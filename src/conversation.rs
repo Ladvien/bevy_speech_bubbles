@@ -228,7 +228,8 @@ pub struct ConversationLock;
 
 /// A one-off ambient balloon over a speaker — barks, reactions. Never blocks play, always a world
 /// balloon whatever the [`Presenter`]; the speaker needs an `entity` in [`Speakers`] or it is dropped.
-#[derive(Message, Debug, Clone)]
+/// Serde, so a game or a tool authors barks as data (RON) with this type and no second schema.
+#[derive(Message, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Bark {
     pub speaker: String,
     pub kind: BubbleKind,
@@ -244,7 +245,7 @@ pub struct Bark {
 /// in turn-taking*, PNAS 2009, DOI 10.1073/pnas.0903616106) but speech carries prosody. A *read*
 /// balloon has no such cue, so the gap must cover the eye-movement + comprehension cost of noticing
 /// the new balloon; ~1 s is the low end of that.
-#[derive(Resource, Debug, Clone, Copy, PartialEq)]
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BarkSettings {
     /// Minimum seconds between two balloons appearing.
     pub gap: f32,
