@@ -16,7 +16,7 @@
 //! # Two ways to show a line
 //!
 //! [`Presenter::Balloons`] puts every line over its speaker's head and auto-advances after
-//! [`dwell_secs`](crate::dwell_secs); [`Presenter::DialogBox`] shows the screen box of
+//! [`dwell_secs`]; [`Presenter::DialogBox`] shows the screen box of
 //! [`crate::dialog_box`] and waits for the player. [`Bark`]s are one-off ambient lines and are always
 //! world balloons, whatever the presenter. A modal conversation holds [`ConversationLock`]; hosts that
 //! must yield input or pause the simulation read it.
