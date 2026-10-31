@@ -13,8 +13,9 @@ All notable changes to this crate are recorded here. The format follows
 - `examples/bench.rs`: what the kit costs its caller, one line per case (raster time and bytes per
   balloon, frame cost at 0/50/200 live balloons and on child owners, the worst frame of a bark burst,
   asset counts after 1000 barks, presses per conversation).
-- `examples/two_balloons.rs`: the thinker rides a cart as a child entity, and `BUBBLES_SHOT=<file.png>`
-  (with `BUBBLES_FRAMES`) renders a still offscreen on a fixed clock and exits.
+- `examples/two_balloons.rs`: the thinker rides a cart as a child entity, its balloons cast no shadow on
+  the floor (`NotShadowCaster`, as the crate's own balloons), and `BUBBLES_SHOT=<file.png>` (with
+  `BUBBLES_FRAMES`) renders a still offscreen on a fixed clock and exits.
 
 ### Fixed
 
@@ -22,4 +23,5 @@ All notable changes to this crate are recorded here. The format follows
   owner's local `Transform`, so a balloon on a child floated at its parent-relative offset from the
   world origin; it now composes the owner's and its ancestors' `Transform`s in the frame it tracks, so
   it matches the propagated `GlobalTransform` with no frame of lag. The balloon also hides when its
-  owner is hidden through a parent, by Bevy's visibility inheritance (#10).
+  owner is hidden through a parent, by Bevy's visibility inheritance, and its `Visibility` is written
+  only when it changes, so a steady balloon no longer re-runs visibility propagation every frame (#10).
