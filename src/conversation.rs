@@ -172,7 +172,9 @@ fn check_speaker(s: &str, cid: &str, nid: &str) -> Result<(), String> {
 /// Who a script's speaker string stands for, as the host knows it.
 #[derive(Debug, Clone, Default)]
 pub struct Speaker {
-    /// The entity a world balloon anchors to; `None` is a narrator (no balloon).
+    /// The entity a world balloon anchors to; `None` is a narrator (no balloon). Any entity with a
+    /// `Transform` and a `Visibility`, a root or a child: the balloon floats over its world position
+    /// and hides when it is hidden, through its parent too.
     pub entity: Option<Entity>,
     /// Shown on the dialog box's name tag; empty hides the tag.
     pub name: String,
