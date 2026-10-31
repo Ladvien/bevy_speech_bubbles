@@ -77,7 +77,8 @@ const STEP: Duration = Duration::from_millis(16);
 const WARMUP: usize = 20;
 const BUILDS: usize = 200;
 const FRAMES: usize = 300;
-const SOURCE: &str = "The lamps are out on the west road and the gate is shut until dawn, so we wait here. ";
+const SOURCE: &str =
+    "The lamps are out on the west road and the gate is shut until dawn, so we wait here. ";
 
 /// A line of exactly `n` characters cut from `SOURCE`, never ending on a space.
 fn line(n: usize) -> String {
@@ -99,13 +100,16 @@ fn main() {
     let Some(path) = std::env::args().nth(1) else {
         eprintln!("usage: cargo run --release --example bench -- <path-to-font.ttf>");
         eprintln!();
-        eprintln!("A font path is required rather than defaulted: the crate never reads a file. For numbers");
+        eprintln!(
+            "A font path is required rather than defaulted: the crate never reads a file. For numbers"
+        );
         eprintln!("that do not depend on the host's fonts, use tests/data/FiraMono-subset.ttf.");
         std::process::exit(2);
     };
-    let font = match std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| {
-        FontArc::try_from_vec(b).map_err(|e| e.to_string())
-    }) {
+    let font = match std::fs::read(&path)
+        .map_err(|e| e.to_string())
+        .and_then(|b| FontArc::try_from_vec(b).map_err(|e| e.to_string()))
+    {
         Ok(f) => f,
         Err(e) => {
             eprintln!("`{path}` is not a readable font: {e}");
@@ -150,7 +154,8 @@ fn raster(font: &FontArc) {
                     for i in 0..WARMUP + BUILDS {
                         let before = ALLOCATED.load(Ordering::Relaxed);
                         let t0 = Instant::now();
-                        let rendered = build_bubble(&assets, &mut images, &mut materials, &style, &text);
+                        let rendered =
+                            build_bubble(&assets, &mut images, &mut materials, &style, &text);
                         let dt = t0.elapsed().as_secs_f64() * 1e6;
                         let allocated = ALLOCATED.load(Ordering::Relaxed) - before;
                         px = rendered.px;
@@ -238,7 +243,12 @@ fn time_frames(app: &mut App, frames: usize) -> Vec<f64> {
 /// `frame-live`: owners are root entities. `frame-live-child`: each owner is the child of a rotated,
 /// scaled parent, so tracking composes the owner's world position through its parent.
 fn frame_live(font: &FontArc) {
-    for (live, case) in [(0usize, "frame-live"), (50, "frame-live"), (200, "frame-live"), (200, "frame-live-child")] {
+    for (live, case) in [
+        (0usize, "frame-live"),
+        (50, "frame-live"),
+        (200, "frame-live"),
+        (200, "frame-live-child"),
+    ] {
         let mut app = app(font);
         let owners = speakers(&mut app, live);
         if case == "frame-live-child" {
@@ -294,7 +304,9 @@ fn frame_live(font: &FontArc) {
         let world = app.world_mut();
         let still = world.query::<&Bubble>().iter(world).count();
         let (median, p99) = median_p99(&mut times);
-        println!("bubbles: {case} balloons={live} median_us={median:.1} p99_us={p99:.1} live_after={still}");
+        println!(
+            "bubbles: {case} balloons={live} median_us={median:.1} p99_us={p99:.1} live_after={still}"
+        );
     }
 }
 
@@ -323,7 +335,9 @@ fn bark_burst(font: &FontArc) {
     let shown = seen.len();
     let worst = times.iter().copied().fold(0.0, f64::max);
     let (median, _) = median_p99(&mut times);
-    println!("bubbles: bark-burst barks=20 worst_us={worst:.1} median_us={median:.1} shown={shown}");
+    println!(
+        "bubbles: bark-burst barks=20 worst_us={worst:.1} median_us={median:.1} shown={shown}"
+    );
 }
 
 fn asset_lifetime(font: &FontArc) {
@@ -345,7 +359,11 @@ fn asset_lifetime(font: &FontArc) {
     for i in 0..1000 {
         app.world_mut().write_message(Bark {
             speaker: format!("s{}", i % 200),
-            kind: if i % 2 == 0 { BubbleKind::Speech } else { BubbleKind::Thought },
+            kind: if i % 2 == 0 {
+                BubbleKind::Speech
+            } else {
+                BubbleKind::Thought
+            },
             emotion: Emotion::Neutral,
             text: text.clone(),
         });
@@ -449,7 +467,8 @@ fn presses(font: &FontArc) {
             app.insert_resource(script.clone())
                 .insert_resource(presenter)
                 .insert_resource(dialog_skin());
-            app.world_mut().write_message(StartConversation { id: id.into() });
+            app.world_mut()
+                .write_message(StartConversation { id: id.into() });
             let mut node = String::new();
             let mut presses = 0;
             let mut ended = 0;
@@ -462,7 +481,14 @@ fn presses(font: &FontArc) {
                         script.conversation(id).and_then(|c| c.nodes.get(&node)),
                         Some(ScriptNode::Choice { .. })
                     );
-                    tap(&mut app, if on_choice { KeyCode::Digit1 } else { KeyCode::Space });
+                    tap(
+                        &mut app,
+                        if on_choice {
+                            KeyCode::Digit1
+                        } else {
+                            KeyCode::Space
+                        },
+                    );
                     presses += 1;
                 }
                 frames += 1;
@@ -474,7 +500,10 @@ fn presses(font: &FontArc) {
                 {
                     node = entered.node;
                 }
-                ended += world.resource_mut::<Messages<ConversationEnded>>().drain().count();
+                ended += world
+                    .resource_mut::<Messages<ConversationEnded>>()
+                    .drain()
+                    .count();
                 if ended > 0 || frames > 100 {
                     break;
                 }
@@ -488,7 +517,9 @@ fn presses(font: &FontArc) {
                     .drain()
                     .count();
             }
-            println!("bubbles: presses conversation={id} presenter={presenter_name} presses={presses} ended={ended}");
+            println!(
+                "bubbles: presses conversation={id} presenter={presenter_name} presses={presses} ended={ended}"
+            );
         }
     }
 }
