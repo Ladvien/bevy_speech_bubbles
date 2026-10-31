@@ -16,8 +16,9 @@
 
 use std::path::{Path, PathBuf};
 
-/// Everything this crate is allowed to depend on.
-const ALLOWED_DEPS: &[&str] = &["bevy", "ab_glyph", "serde"];
+/// Everything this crate is allowed to depend on. `unicode-segmentation` (pure Rust, no dependencies,
+/// nothing to do with an engine) is there for the grapheme clusters a too-long word is broken between.
+const ALLOWED_DEPS: &[&str] = &["bevy", "ab_glyph", "serde", "unicode-segmentation"];
 
 /// Crate names that would mean the boundary has been crossed. `bevy_math` is glam types and is
 /// allowed above; anything that draws, schedules, or knows what a game is, is not.

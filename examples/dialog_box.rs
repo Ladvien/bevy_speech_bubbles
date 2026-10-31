@@ -11,12 +11,29 @@
 //!
 //! **The font is yours.** The path is a required argument.
 //!
+//! `BUBBLES_CONVERSATION=wrap` starts the conversation whose words are longer than the box: they wrap
+//! inside the paper instead of running out of it.
+//!
+//! `BUBBLES_SHOT=<file.png>` renders without a window into a 900x620 image, shows every line at once,
+//! saves the image after `BUBBLES_FRAMES` frames (default 30) and exits. The clock then steps a fixed
+//! 1/60 s per frame, so a frame number is the same picture on every machine, and a locked or headless
+//! screen still captures.
+//!
 //! Run: `cargo run --example dialog_box -- <path-to-font.ttf>`
 
+use std::time::Duration;
+
+use bevy::app::ScheduleRunnerPlugin;
 use bevy::asset::RenderAssetUsages;
+use bevy::camera::RenderTarget;
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
+use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::sprite::TextureSlicer;
+use bevy::time::TimeUpdateStrategy;
+use bevy::ui::IsDefaultUiCamera;
+use bevy::window::ExitCondition;
+use bevy::winit::WinitPlugin;
 use bevy_speech_bubbles::{
     ConversationEnded, DEFAULT_CHARS_PER_SECOND, DialogSkin, DialogueScript, Presenter, Speaker,
     Speakers, SpeechBubblesPlugin, StartConversation, validate_script,
@@ -41,15 +58,44 @@ const SCRIPT: &str = r#"
         "no": Line(speaker: "keeper", emotion: Sadness, text: "Then I will ask the boy, and God help him.", next: None),
       },
     ),
+    "wrap": (
+      start: "ledger",
+      nodes: {
+        "ledger": Choice(speaker: "keeper", prompt: "The ledger names the ship the Donaudampfschifffahrtsgesellschaftskapitaensmuetzenverbandsvorsitzender and nothing else.", options: [
+          (text: "Sign beneath Donaudampfschifffahrtsgesellschaftskapitaensmuetzenverbandsvorsitzender.", next: "done"),
+          (text: "Burn it.", next: "done"),
+        ]),
+        "done": Line(speaker: "keeper", text: "So be it.", next: None),
+      },
+    ),
   },
 )
 "#;
 
+/// What the command line chose: the font, and the conversation to start (`demo`, or
+/// `BUBBLES_CONVERSATION`).
 #[derive(Resource)]
-struct FontPath(String);
+struct Launch {
+    font: String,
+    conversation: String,
+}
 
 #[derive(Resource)]
 struct Restart(Timer);
+
+/// `BUBBLES_SHOT`: where the still goes and after how many frames.
+#[derive(Resource)]
+struct Shot {
+    path: String,
+    frames: u32,
+}
+
+/// The image the camera renders into while capturing.
+#[derive(Resource)]
+struct ShotImage(Handle<Image>);
+
+/// The still's size in pixels: the window's 900x620 at a scale factor of 1.
+const SHOT_SIZE: UVec2 = UVec2::new(900, 620);
 
 fn main() {
     let Some(path) = std::env::args().nth(1) else {
@@ -60,22 +106,79 @@ fn main() {
         std::process::exit(2);
     };
 
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "bevy_speech_bubbles — the screen dialog box".into(),
-                resolution: (900u32, 620u32).into(),
+    let shot = std::env::var("BUBBLES_SHOT").ok().map(|path| Shot {
+        path,
+        frames: std::env::var("BUBBLES_FRAMES")
+            .ok()
+            .and_then(|f| f.parse().ok())
+            .unwrap_or(30),
+    });
+    let conversation = std::env::var("BUBBLES_CONVERSATION").unwrap_or_else(|_| "demo".to_string());
+
+    let mut app = App::new();
+    match shot {
+        None => {
+            app.add_plugins(DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "bevy_speech_bubbles — the screen dialog box".into(),
+                    resolution: (900u32, 620u32).into(),
+                    ..default()
+                }),
                 ..default()
-            }),
-            ..default()
-        }))
-        .add_plugins(SpeechBubblesPlugin::<ExampleCamera>::default())
-        .insert_resource(FontPath(path))
+            }));
+        }
+        Some(shot) => {
+            // No window: the camera renders into an image, so a locked or headless screen captures.
+            app.add_plugins((
+                DefaultPlugins
+                    .set(WindowPlugin {
+                        primary_window: None,
+                        exit_condition: ExitCondition::DontExit,
+                        ..default()
+                    })
+                    .disable::<WinitPlugin>(),
+                ScheduleRunnerPlugin::run_loop(Duration::ZERO),
+            ))
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+                1.0 / 60.0,
+            )))
+            .insert_resource(shot)
+            .add_systems(Last, capture);
+        }
+    }
+    app.add_plugins(SpeechBubblesPlugin::<ExampleCamera>::default())
+        .insert_resource(Launch {
+            font: path,
+            conversation,
+        })
         .insert_resource(Restart(Timer::from_seconds(1.0, TimerMode::Once)))
         .insert_resource(Presenter::DialogBox)
         .add_systems(Startup, setup)
         .add_systems(Update, (restart, cycle_speed))
         .run();
+}
+
+/// Save the camera's image on frame `Shot::frames`, then exit.
+fn capture(
+    mut commands: Commands,
+    shot: Res<Shot>,
+    image: Option<Res<ShotImage>>,
+    mut frame: Local<u32>,
+) {
+    *frame += 1;
+    let Some(image) = image else {
+        return;
+    };
+    if *frame == shot.frames {
+        commands
+            .spawn(Screenshot::image(image.0.clone()))
+            .observe(save_to_disk(shot.path.clone()))
+            .observe(
+                |_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+                    exit.write(AppExit::Success);
+                },
+            );
+    }
 }
 
 /// A flat `w`×`h` RGBA image.
@@ -120,10 +223,27 @@ fn setup(
     mut images: ResMut<Assets<Image>>,
     mut speakers: ResMut<Speakers>,
     mut fonts: ResMut<Assets<Font>>,
-    path: Res<FontPath>,
+    launch: Res<Launch>,
+    shot: Option<Res<Shot>>,
     mut starts: MessageWriter<StartConversation>,
 ) {
-    commands.spawn((Camera2d, ExampleCamera));
+    let camera = commands
+        .spawn((Camera2d, ExampleCamera, IsDefaultUiCamera))
+        .id();
+    if shot.is_some() {
+        let mut image = Image::new_target_texture(
+            SHOT_SIZE.x,
+            SHOT_SIZE.y,
+            TextureFormat::Rgba8UnormSrgb,
+            None,
+        );
+        image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
+        let image = images.add(image);
+        commands
+            .entity(camera)
+            .insert(RenderTarget::Image(image.clone().into()));
+        commands.insert_resource(ShotImage(image));
+    }
     commands.insert_resource(ClearColor(Color::srgb(0.10, 0.09, 0.08)));
 
     let script: DialogueScript = match ron::from_str(SCRIPT) {
@@ -141,10 +261,10 @@ fn setup(
 
     // The font: read from the path you gave. A path outside the `assets` folder is not the asset
     // server's to load, so the bytes go in as a `Font` asset directly.
-    let bytes = match std::fs::read(&path.0) {
+    let bytes = match std::fs::read(&launch.font) {
         Ok(b) => b,
         Err(e) => {
-            error!("could not read `{}`: {e}", path.0);
+            error!("could not read `{}`: {e}", launch.font);
             return;
         }
     };
@@ -184,7 +304,12 @@ fn setup(
         padding: 16.0,
         width: 640.0,
         portrait_size: 64.0,
-        chars_per_second: DEFAULT_CHARS_PER_SECOND,
+        // A still shows the finished line; a window types it out.
+        chars_per_second: if shot.is_some() {
+            0.0
+        } else {
+            DEFAULT_CHARS_PER_SECOND
+        },
         bottom_margin: 48.0,
     });
 
@@ -196,12 +321,15 @@ fn setup(
             portrait: Some(flat(&mut images, 16, 16, [120, 86, 64, 255])),
         },
     );
-    starts.write(StartConversation { id: "demo".into() });
+    starts.write(StartConversation {
+        id: launch.conversation.clone(),
+    });
 }
 
 /// Start the conversation again a second after it ends.
 fn restart(
     time: Res<Time>,
+    launch: Res<Launch>,
     mut timer: ResMut<Restart>,
     mut ends: MessageReader<ConversationEnded>,
     mut starts: MessageWriter<StartConversation>,
@@ -213,7 +341,9 @@ fn restart(
     }
     if *waiting && timer.0.tick(time.delta()).just_finished() {
         *waiting = false;
-        starts.write(StartConversation { id: "demo".into() });
+        starts.write(StartConversation {
+            id: launch.conversation.clone(),
+        });
     }
 }
 
