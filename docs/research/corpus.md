@@ -68,5 +68,14 @@ and Ink manuals when a pass can fetch them as documents.
 
 ## Glyph rasterization and text layout (technical)
 
-Not yet surveyed in the corpus: SDF text (Green 2007), coverage rasterizers, UAX #14 line breaking,
-Knuth–Plass. The first pass that touches `rasterize` or wrapping searches for them.
+Added in iteration 6 (`line-breaking.md`); the rest is not yet surveyed in the corpus (SDF text, Green
+2007; coverage rasterizers; Knuth-Plass), and the first pass that touches `rasterize` itself searches
+for them.
+
+| Stem / DOI | Source | Notes |
+| --- | --- | --- |
+| `10.1007_s10055-024-00949-6` | Cauz, Clarinval & Dumas, *Text readability in augmented reality: a multivocal literature review*, Virtual Reality 2024 | world-anchored text: "making text lines short"; contrast, font size, anchor and position are the settled parameters |
+| `Game Engine Architecture, Third Edition, 3rd Edition -- Jason Gregory -- …` | Gregory, *Game Engine Architecture* 3e, section 6.4 (localization) | a line of dialog is a UTF-8 string from a localization tool, in every supported language |
+| Unicode Standard Annex #14 (unicode.org/reports/tr14; web, not a corpus stem) | *Unicode Line Breaking Algorithm* | the emergency mode for a line with no break opportunity; keep grapheme clusters together; ideographs break between characters |
+| MDN `overflow-wrap` (developer.mozilla.org; web, not a stem) | CSS Text Level 3 | `break-word`: a normally unbreakable word may be broken when no other break point exists |
+| Bevy 0.20 source (vendored) | `bevy_text/src/text.rs` `LineBreak`, `pipeline.rs` | `WordBoundary` (the default) leaves a long word to overflow; `WordOrCharacter` falls back to characters |
