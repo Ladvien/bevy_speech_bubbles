@@ -38,6 +38,13 @@ const OPEN_SECS: f32 = 0.12;
 const POP_FROM: f32 = 1.08;
 const POP_SECS: f32 = 0.15;
 
+/// How the box's text wraps: at word boundaries, and inside a word that is wider than the line (a long
+/// name, a URL, a line of Chinese with no spaces) rather than out of the paper. Bevy's default,
+/// `LineBreak::WordBoundary`, leaves such a word to overflow; this is the rule the world balloons follow.
+fn wrap_layout() -> TextLayout {
+    TextLayout::linebreak(LineBreak::WordOrCharacter)
+}
+
 /// How the dialog box looks. The host builds it (from its own theme) and inserts it; mutate
 /// `chars_per_second` at run time for a text-speed setting. All sizes are in the host's UI pixels.
 #[derive(Resource, Clone)]
@@ -312,6 +319,7 @@ pub(crate) fn present_dialog_box(
     let text = commands
         .spawn((
             Text::new(""),
+            wrap_layout(),
             skin.body_font.clone(),
             TextColor(skin.text_color),
             Node {
@@ -352,6 +360,7 @@ pub(crate) fn present_dialog_box(
                     ..default()
                 },
                 Text::new(format!("{}. {option}", i + 1)),
+                wrap_layout(),
                 skin.body_font.clone(),
                 TextColor(skin.choice_color),
                 Pickable::default(),
