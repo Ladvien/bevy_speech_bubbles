@@ -1104,7 +1104,10 @@ mod tests {
             let err = one_node(&node.replace("KEY", typo))
                 .expect_err("a misspelt field must not parse")
                 .to_string();
-            assert!(err.contains(typo), "the diagnostic names the misspelt key: {err}");
+            assert!(
+                err.contains(typo),
+                "the diagnostic names the misspelt key: {err}"
+            );
             one_node(&node.replace("KEY", meant))
                 .unwrap_or_else(|e| panic!("`{meant}` spelt right loads: {e}"));
         }

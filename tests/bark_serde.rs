@@ -45,5 +45,8 @@ fn an_unknown_pacing_field_is_refused() {
     let err = ron::from_str::<BarkSettings>(&format!("{known}, max_live: 2)"))
         .expect_err("`max_live` is not a pacing field")
         .to_string();
-    assert!(err.contains("max_live"), "the diagnostic names the key: {err}");
+    assert!(
+        err.contains("max_live"),
+        "the diagnostic names the key: {err}"
+    );
 }
