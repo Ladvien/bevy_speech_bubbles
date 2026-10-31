@@ -33,6 +33,10 @@ bevy = { version = "0.20.0", default-features = false, features = [
 ab_glyph = "0.2"
 # The conversation model is authored data: a host loads it from YAML or RON and may write it back.
 serde = { version = "1", features = ["derive"] }
+# Grapheme clusters (UAX #29): a word wider than a balloon line is broken between user-perceived
+# characters, never inside an accent, a flag or an emoji sequence (UAX #14's emergency break). Pure Rust,
+# no dependencies of its own.
+unicode-segmentation = "1"
 
 # **Tests and examples only.** The examples need a window, an event loop (winit) and the 3D camera
 # pipeline, so they take the full umbrella here, where it cannot reach a consumer's dependency graph.
