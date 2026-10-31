@@ -6,6 +6,10 @@ All notable changes to this crate are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The README follows the bevy-coven org's documentation guide: the org banner, badges, a Status and a Why line, a quick start that is compiled as a doctest, a still image, and "What you can do" bullets linking `docs/guide/`, where every section it used to carry now lives unchanged. Image and file links are absolute URLs, so docs.rs shows them.
+
 ### Added
 
 - `examples/dialog_box.rs`: `BUBBLES_SHOT=<file.png>` (with `BUBBLES_FRAMES`, default 30) renders a still

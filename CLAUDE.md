@@ -54,3 +54,5 @@ This repository, [`bevy-coven/bevy_speech_bubbles`](https://github.com/bevy-cove
 - **`Single<..>` silently skips its system on a non-unique match** — which is exactly why the camera is a type parameter rather than `With<Camera3d>`.
 - In tests, `ButtonInput::clear()` drops `just_pressed` only: also `release` a key before pressing it again.
 - To assert a `warn!` in a test, record events with a `bevy::log::tracing_subscriber::Layer` inside `bevy::log::tracing::subscriber::with_default`, and set the schedules that log (`PreUpdate`, `Update`) to `SingleThreadedExecutor` (`schedule.set_executor(..)`): a multithreaded executor logs on a pool thread the scoped subscriber never sees. `tests/walk.rs`'s `warned` module is the pattern.
+
+README and docs follow https://github.com/bevy-coven/.github/blob/main/DOCUMENTATION.md; a feature is not done until its README line and, if visible, its GIF exist.

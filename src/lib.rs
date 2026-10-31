@@ -72,3 +72,8 @@ pub use conversation::{
 pub use dialog_box::{ChoiceFocus, DEFAULT_CHARS_PER_SECOND, DIALOG_Z, DialogSkin};
 pub use plugin::{DialogInputSet, SpeechBubblesPlugin};
 pub use style::{BubbleKind, Emotion};
+
+// The README's quick start is compiled as a doctest, so it cannot drift from the API.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
