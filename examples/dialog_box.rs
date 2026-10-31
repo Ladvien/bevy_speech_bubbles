@@ -72,15 +72,16 @@ const SCRIPT: &str = r#"
 )
 "#;
 
+/// What the command line chose: the font, and the conversation to start (`demo`, or
+/// `BUBBLES_CONVERSATION`).
 #[derive(Resource)]
-struct FontPath(String);
+struct Launch {
+    font: String,
+    conversation: String,
+}
 
 #[derive(Resource)]
 struct Restart(Timer);
-
-/// The conversation to start: `demo`, or `BUBBLES_CONVERSATION`.
-#[derive(Resource)]
-struct Conversation(String);
 
 /// `BUBBLES_SHOT`: where the still goes and after how many frames.
 #[derive(Resource)]
@@ -146,8 +147,10 @@ fn main() {
         }
     }
     app.add_plugins(SpeechBubblesPlugin::<ExampleCamera>::default())
-        .insert_resource(FontPath(path))
-        .insert_resource(Conversation(conversation))
+        .insert_resource(Launch {
+            font: path,
+            conversation,
+        })
         .insert_resource(Restart(Timer::from_seconds(1.0, TimerMode::Once)))
         .insert_resource(Presenter::DialogBox)
         .add_systems(Startup, setup)
@@ -220,8 +223,7 @@ fn setup(
     mut images: ResMut<Assets<Image>>,
     mut speakers: ResMut<Speakers>,
     mut fonts: ResMut<Assets<Font>>,
-    path: Res<FontPath>,
-    conversation: Res<Conversation>,
+    launch: Res<Launch>,
     shot: Option<Res<Shot>>,
     mut starts: MessageWriter<StartConversation>,
 ) {
@@ -259,10 +261,10 @@ fn setup(
 
     // The font: read from the path you gave. A path outside the `assets` folder is not the asset
     // server's to load, so the bytes go in as a `Font` asset directly.
-    let bytes = match std::fs::read(&path.0) {
+    let bytes = match std::fs::read(&launch.font) {
         Ok(b) => b,
         Err(e) => {
-            error!("could not read `{}`: {e}", path.0);
+            error!("could not read `{}`: {e}", launch.font);
             return;
         }
     };
@@ -320,14 +322,14 @@ fn setup(
         },
     );
     starts.write(StartConversation {
-        id: conversation.0.clone(),
+        id: launch.conversation.clone(),
     });
 }
 
 /// Start the conversation again a second after it ends.
 fn restart(
     time: Res<Time>,
-    conversation: Res<Conversation>,
+    launch: Res<Launch>,
     mut timer: ResMut<Restart>,
     mut ends: MessageReader<ConversationEnded>,
     mut starts: MessageWriter<StartConversation>,
@@ -340,7 +342,7 @@ fn restart(
     if *waiting && timer.0.tick(time.delta()).just_finished() {
         *waiting = false;
         starts.write(StartConversation {
-            id: conversation.0.clone(),
+            id: launch.conversation.clone(),
         });
     }
 }

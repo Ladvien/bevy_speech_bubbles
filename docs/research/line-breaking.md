@@ -103,9 +103,12 @@ is taken first, so the word starts a line of its own, and only a word that still
 ## Deviations
 
 - **A new runtime dependency, `unicode-segmentation` 1.** The crate had none beyond bevy, `ab_glyph`
-  and `serde`. It is a pure-Rust table crate with no dependencies; it is already in this repository's
-  `Cargo.lock` (through a proc-macro), and a hand-written "do not break before a combining mark" would be
-  a partial UAX #29 that the Annex tells implementers to use whole. Design default.
+  and `serde`. It is a pure-Rust table crate with no dependencies; it is in this repository's
+  `Cargo.lock` only through a proc-macro (`convert_case`), so a consumer's runtime graph gains it. A
+  hand-written "do not break before a combining mark" would be a partial UAX #29 that the Annex tells
+  implementers to use whole. Design default. `tests/leaf.rs`'s `ALLOWED_DEPS` gains the name in the same
+  commit (`assumed owner exception`, recorded in that commit's body and in the loop log): an additive
+  entry, no assertion loosened.
 - **Only the emergency break, not full UAX #14.** Breaking after a hyphen, before a closing quotation
   mark or between a digit and a unit are UAX #14 opportunities this does not implement: a long
   hyphenated compound breaks at the last cluster that fits, not after its last hyphen. Recorded in the
