@@ -1096,6 +1096,159 @@ mod tests {
         }
     }
 
+    // ----- line breaking -----
+
+    /// `text` wrapped at the skin's cap: the lines, each one's measured width, and the cap.
+    fn wrapped(skin: &BalloonSkin, text: &str) -> (Vec<String>, Vec<f32>, f32) {
+        let font = test_font();
+        let m = Metrics::new(skin);
+        let sf = font.as_scaled(PxScale::from(m.cap));
+        let lines = wrap_lines(&sf, text, m.max_text_w);
+        let widths = lines.iter().map(|l| measure(&sf, l)).collect();
+        (lines, widths, m.max_text_w)
+    }
+
+    /// **A word wider than the line is broken, never spilled.** Before this, a 60-letter word went on a
+    /// line of its own, and that line set the balloon's width: 1269 px against a 568 px cap at `crt()`.
+    /// A line of Chinese, which has no spaces, was one such word however short.
+    #[test]
+    fn a_word_wider_than_the_line_is_broken_at_the_cap() {
+        let long = "W".repeat(60);
+        let cases = [
+            long.clone(),
+            format!("go {long} now"),
+            format!("{long} {long}"),
+            "漢".repeat(40),
+        ];
+        for skin in [BalloonSkin::crt(), BalloonSkin::ink_on_paper()] {
+            for text in &cases {
+                let (lines, widths, cap) = wrapped(&skin, text);
+                assert!(lines.len() > 1, "pixel={}: {text:?} was not broken", skin.pixel);
+                for (line, w) in lines.iter().zip(&widths) {
+                    assert!(
+                        *w <= cap + 1.0e-3,
+                        "pixel={}: line {line:?} is {w:.1} px, past the {cap} px cap",
+                        skin.pixel
+                    );
+                }
+                assert_eq!(
+                    lines.concat().replace(' ', ""),
+                    text.replace(' ', ""),
+                    "breaking a word must not lose or add a character"
+                );
+            }
+        }
+    }
+
+    /// Text with no over-wide word wraps as the greedy wrap always did: a word that fits on a line of
+    /// its own is never broken.
+    #[test]
+    fn a_sentence_with_no_overlong_word_wraps_greedily() {
+        let (lines, ..) = wrapped(&BalloonSkin::crt(), LINE);
+        assert_eq!(
+            lines,
+            ["Hold the gate until", "dawn, then ring the", "bell twice."]
+        );
+    }
+
+    /// The fragment a broken word ends on is an ordinary line end: the next word continues after it.
+    #[test]
+    fn the_word_after_a_broken_word_continues_on_its_last_fragment() {
+        let (lines, ..) = wrapped(&BalloonSkin::crt(), &format!("{} id", "W".repeat(60)));
+        assert_eq!(
+            lines,
+            ["W".repeat(21), "W".repeat(21), format!("{} id", "W".repeat(18))]
+        );
+    }
+
+    /// UAX #14's emergency mode keeps grapheme clusters together: an accent, a flag and a ZWJ family
+    /// are each one user-perceived character and never end a line half-written.
+    #[test]
+    fn a_grapheme_cluster_is_never_split_across_lines() {
+        let clusters = [
+            "e\u{301}",
+            "\u{1F1EB}\u{1F1F7}",
+            "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+        ];
+        for cluster in clusters {
+            let text = cluster.repeat(40);
+            for skin in [BalloonSkin::crt(), BalloonSkin::ink_on_paper()] {
+                let (lines, ..) = wrapped(&skin, &text);
+                assert!(lines.len() > 1, "{cluster:?} x40 was not broken");
+                for line in &lines {
+                    assert_eq!(
+                        line.matches(cluster).count() * cluster.len(),
+                        line.len(),
+                        "pixel={}: line {line:?} is not whole {cluster:?} clusters",
+                        skin.pixel
+                    );
+                }
+            }
+        }
+    }
+
+    /// Bounding box `(min_x, min_y, max_x, max_y)` of the texels drawn in exactly the glyph colour.
+    fn ink_box(rgba: &[u8], w: u32, text: [u8; 4]) -> (u32, u32, u32, u32) {
+        let mut bb = (u32::MAX, u32::MAX, 0, 0);
+        for (i, px) in rgba.as_chunks::<4>().0.iter().enumerate() {
+            if *px == text {
+                let (x, y) = (i as u32 % w, i as u32 / w);
+                bb = (bb.0.min(x), bb.1.min(y), bb.2.max(x), bb.3.max(y));
+            }
+        }
+        bb
+    }
+
+    /// **The balloon of a broken word is an ordinary balloon.** A 60-letter word breaks at 21, 21 and
+    /// 18 letters (the test font's 0.6 em advance against the cap), so its raster is the very raster of
+    /// the author writing those three pieces as three words. Its glyphs stay within the cap and inside
+    /// the border, and a pixel skin is still ink, border or background and nothing in between.
+    #[test]
+    fn a_broken_word_makes_an_ordinary_balloon() {
+        let font = test_font();
+        let long = "W".repeat(60);
+        let by_hand = format!("{} {} {}", "W".repeat(21), "W".repeat(21), "W".repeat(18));
+        for skin in [BalloonSkin::crt(), BalloonSkin::ink_on_paper()] {
+            let m = Metrics::new(&skin);
+            for kind in [BubbleKind::Speech, BubbleKind::Thought] {
+                let style = styled(kind, true, skin);
+                let (rgba, w, h) = rasterize(&font, &style, &long);
+                let (by_hand_rgba, bw, bh) = rasterize(&font, &style, &by_hand);
+                assert_eq!(
+                    (w, h),
+                    (bw, bh),
+                    "pixel={} {kind:?}: the broken word is not the balloon of its pieces",
+                    skin.pixel
+                );
+                assert!(rgba == by_hand_rgba, "pixel={} {kind:?}: same size, different texels", skin.pixel);
+
+                let (x0, y0, x1, y1) = ink_box(&rgba, w, skin.text);
+                assert!(
+                    (x1 - x0 + 1) as f32 <= m.max_text_w + 2.0,
+                    "pixel={} {kind:?}: the ink is {} px wide, past the {} px cap",
+                    skin.pixel,
+                    x1 - x0 + 1,
+                    m.max_text_w
+                );
+                let edge = m.margin + m.border;
+                assert!(
+                    x0 as f32 >= edge
+                        && y0 as f32 >= edge
+                        && (w - 1 - x1) as f32 >= edge
+                        && (h - 1 - y1) as f32 >= edge,
+                    "pixel={} {kind:?}: ink {x0},{y0}..{x1},{y1} reaches the border of a {w}x{h} raster",
+                    skin.pixel
+                );
+                if skin.pixel {
+                    assert!(
+                        rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 0 || px[3] == 255),
+                        "{kind:?}: a texel is partially transparent"
+                    );
+                }
+            }
+        }
+    }
+
     // ----- BalloonScale -----
 
     #[derive(Component)]
