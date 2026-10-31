@@ -6,7 +6,29 @@ All notable changes to this crate are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `examples/dialog_box.rs`: `BUBBLES_SHOT=<file.png>` (with `BUBBLES_FRAMES`, default 30) renders a still
+  offscreen on a fixed clock with every line shown at once, and `BUBBLES_CONVERSATION=wrap` starts a
+  conversation whose words are longer than the box.
+
+### Changed
+
+- A new runtime dependency, `unicode-segmentation` 1 (pure Rust, no dependencies of its own), for the
+  grapheme clusters a long word is broken between.
+
 ### Fixed
+
+- A word wider than a balloon line no longer widens the balloon, and the screen dialog box no longer
+  lets it run out of the paper. `wrap_lines` was a greedy wrap on whitespace, so a 60-letter word (a
+  long name, a URL, a German compound) went on a line of its own and that line set the balloon's width:
+  1269x136 px at `BalloonSkin::crt()` and 506x53 at `ink_on_paper()`, against 568 and 234 px for a
+  wrapped 240-character line. A line of Chinese or Japanese, which has no spaces, was one such word
+  however short. A word that does not fit a line of its own is now broken after the last grapheme
+  cluster that fits (UAX #14's emergency mode; an accent, a flag or an emoji sequence is never split) and
+  the next word continues after its last fragment. A word that fits on a line is never broken, so
+  ordinary text wraps exactly as before. The dialog box's body text and choice rows ask Bevy for
+  `LineBreak::WordOrCharacter`, which is the same rule.
 
 - A misspelt or unknown key in authored data is a parse error, not a value silently left at its
   default. `Node`, `Bark` and `BarkSettings` now refuse unknown fields (`#[serde(deny_unknown_fields)]`),
