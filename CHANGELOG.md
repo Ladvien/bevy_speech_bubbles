@@ -8,6 +8,15 @@ All notable changes to this crate are recorded here. The format follows
 
 ### Fixed
 
+- A misspelt or unknown key in authored data is a parse error, not a value silently left at its
+  default. `Node`, `Bark` and `BarkSettings` now refuse unknown fields (`#[serde(deny_unknown_fields)]`),
+  as `Choice`, `Conversation` and `DialogueScript` already did. `Line(.., emtion: Fear, ..)` used to
+  load as a Neutral balloon and `knid: Thought` as a speech balloon, `ttl` on a bark and `max_live` in
+  bark pacing were dropped without a word, and `validate_script` could not see any of it. The error
+  names the key, the type and the spellings it could have been, with the line and column (RON). Scripts
+  and barks written with the correct keys, and everything this crate serialises, load as before; a host
+  whose files carry an unknown key that used to be ignored now gets an error at load time (#12).
+
 - A `Bark`, or a `Presenter::Balloons` line, whose speaker is not a key of `Speakers` is no longer
   dropped in silence. The crate told a registered narrator (`entity: None`, quiet by design) from a key
   nobody registered with one `None`; it now tells them apart and `warn!`s for the second, naming the
