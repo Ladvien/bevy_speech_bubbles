@@ -56,7 +56,11 @@ pub struct Choice {
 }
 
 /// A single node in a conversation graph.
+///
+/// Authored data: a key the node does not have (a misspelt `emotion`, a `kind` on a choice) is a parse
+/// error naming the key, never a field silently left at its default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Node {
     /// A spoken/thought line by `speaker`; advances to `next` (or ends the conversation on `None`).
     Line {
@@ -241,8 +245,10 @@ pub struct ConversationLock;
 /// A one-off ambient balloon over a speaker — barks, reactions. Never blocks play, always a world
 /// balloon whatever the [`Presenter`]; the speaker needs an `entity` in [`Speakers`] or it is dropped
 /// (quietly for a narrator, with one `warn!` per key for a key that is not registered).
-/// Serde, so a game or a tool authors barks as data (RON) with this type and no second schema.
+/// Serde, so a game or a tool authors barks as data (RON) with this type and no second schema. A key
+/// the bark does not have (`ttl`) is a parse error naming it, not a value dropped without a word.
 #[derive(Message, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Bark {
     pub speaker: String,
     pub kind: BubbleKind,
@@ -258,7 +264,11 @@ pub struct Bark {
 /// in turn-taking*, PNAS 2009, DOI 10.1073/pnas.0903616106) but speech carries prosody. A *read*
 /// balloon has no such cue, so the gap must cover the eye-movement + comprehension cost of noticing
 /// the new balloon; ~1 s is the low end of that.
+///
+/// Serde, like [`Bark`]: a key this struct does not have (`max_live`) is a parse error, not a setting
+/// that was read and ignored.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BarkSettings {
     /// Minimum seconds between two balloons appearing.
     pub gap: f32,
@@ -1054,6 +1064,65 @@ mod tests {
     fn unknown_fields_are_refused() {
         let bad = r#"( conversations: { "x": ( start: "a", extra: 1, nodes: {} ) } )"#;
         assert!(ron::from_str::<DialogueScript>(bad).is_err());
+    }
+
+    /// Parse a script of one conversation whose only node, `a`, is `node`.
+    fn one_node(node: &str) -> Result<DialogueScript, ron::error::SpannedError> {
+        ron::from_str(&format!(
+            r#"( conversations: {{ "x": ( start: "a", nodes: {{ "a": {node} }} ) }} )"#
+        ))
+    }
+
+    /// `kind` and `emotion` are optional on a node, so a misspelt key used to parse, fall back to the
+    /// default and draw the wrong balloon with no word to the author (#12). Each typo is refused
+    /// with the key named, and the same node spelt right loads.
+    #[test]
+    fn a_misspelt_node_field_is_refused() {
+        let cases = [
+            // (typo, the key meant, its value, the node around it)
+            (
+                "emtion",
+                "emotion",
+                "Fear",
+                r#"Line(speaker: "s", KEY: VALUE, text: "hi", next: None)"#,
+            ),
+            (
+                "knid",
+                "kind",
+                "Thought",
+                r#"Line(speaker: "s", KEY: VALUE, text: "hm", next: None)"#,
+            ),
+            (
+                "emotoin",
+                "emotion",
+                "Anger",
+                r#"Choice(speaker: "s", KEY: VALUE, prompt: "?", options: [(text: "t", next: "a")])"#,
+            ),
+        ];
+        for (typo, meant, value, node) in cases {
+            let node = node.replace("VALUE", value);
+            let err = one_node(&node.replace("KEY", typo))
+                .expect_err("a misspelt field must not parse")
+                .to_string();
+            assert!(
+                err.contains(typo),
+                "the diagnostic names the misspelt key: {err}"
+            );
+            one_node(&node.replace("KEY", meant))
+                .unwrap_or_else(|e| panic!("`{meant}` spelt right loads: {e}"));
+        }
+    }
+
+    /// A choice is always a speech balloon: it has no `kind`, so `kind: Thought` on one is an
+    /// unknown field, not a silently dropped request for a thought balloon.
+    #[test]
+    fn a_field_the_variant_lacks_is_refused() {
+        let err = one_node(
+            r#"Choice(speaker: "s", kind: Thought, prompt: "?", options: [(text: "t", next: "a")])"#,
+        )
+        .expect_err("a choice has no `kind`")
+        .to_string();
+        assert!(err.contains("kind"), "{err}");
     }
 
     #[test]

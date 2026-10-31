@@ -58,9 +58,13 @@ Gap: no lettering handbook (Eisner, McCloud, Cohn) is in the corpus.
 | `book_metamorphic_testing_review_chen2018` | configuration-error injection study (metamorphic-testing review, Chen 2018) | a diagnostic names "the misconfigured parameter's name/value or its location"; a reaction with no symptom is the unstudied failure |
 | `kleppmann_designing_data_intensive_applications` | Kleppmann, *Designing Data-Intensive Applications* ch. 1 | configuration errors by operators are the leading cause of outages; a system can check itself and raise an alert |
 | Bevy 0.20.1 source (vendored) | `bevy_utils/src/once.rs`, `bevy_log/src/once.rs` | `warn_once!` is "once per call site", not per key |
+| Yarn Spinner documentation, *Errors* (web, `docs.yarnspinner.dev`; not a corpus stem) | Yarn Spinner error codes | an unknown command, node, enum member or character is a reported error with a code and a line (YS0012, YS0014, YS0016, YS0025), never a silent default; read in iteration 5 |
+| serde.rs *Container attributes*; `serde_derive-1.0.229`, `ron-0.12.3` (vendored) | `deny_unknown_fields` | an unknown key is skipped as `IgnoredAny` unless the container refuses it; RON accepts a bare identifier there; read in iteration 5 |
+| `Procedural Storytelling in Game Design -- Anna's Archive` | Short & Adams (eds.), ch. 10 on *The Sims 4* | "If players can't see NPC traits or interact with them, then they effectively don't exist"; speech and thought balloons over the speaker |
 
-Gap: no dialogue-authoring tool documentation (Yarn Spinner, Ink) is in the corpus; how those tools report
-an unresolved speaker or node name is unsurveyed.
+Gap: no dialogue-authoring tool documentation (Yarn Spinner, Ink) is in the corpus; Yarn Spinner's error
+table was read from its published page, and Ink's compile errors are unsurveyed. Index the Yarn Spinner
+and Ink manuals when a pass can fetch them as documents.
 
 ## Glyph rasterization and text layout (technical)
 

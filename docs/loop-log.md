@@ -279,3 +279,112 @@ Numbering: iterations 1 and 2 were passes killed before they logged; their work 
 5. **Small ones**: the balloon-mode `Choice` arm's "has none" wording for an unregistered key (use
    `Resolved`), the speech tail tip's 3-6 texel offset from the anchor column, `BUBBLES_SHOT` in `chatter`
    and `dialog_box`, and a permanent test that 1000 expired barks return the asset counts.
+
+## Iteration 5 — 2026-10-31 — a misspelt or unknown key in a script, a bark or bark pacing is a parse error (#12)
+
+- **Item and why it ranked first.** Issue triage: open #12 (bug: `Node`, `Bark`, `BarkSettings` accept
+  unknown fields), #5, #6, #7, #8 (enhancements); no `consumer` label on anything. #12 is the only filed
+  bug, so it beat every enhancement; the carried backlog bug (an unbreakable word widens the balloon) is
+  not a filed issue and ranks behind it. Runner-up: that backlog bug. Skipped, not blocked: #5-#8
+  (enhancements rank behind any bug). Parked work: `git branch --list 'wiggum/parked-*'` is empty;
+  `loop/iter-1` and `loop/iter-2` are older parked passes, unrelated to #12 (nothing to adopt).
+- **What changed.** `#[serde(deny_unknown_fields)]` on `Node` (covers `Line` and `Choice`), `Bark` and
+  `BarkSettings`, so all six serde types that carry fields refuse an unknown key. Before: `Line(.., emtion:
+  Fear, ..)` loaded as `kind: Speech, emotion: Neutral` (the misspelt key skipped, the default used), a
+  `Choice` with `kind: Thought` loaded, a bark's `ttl` and pacing's `max_live` were dropped, and
+  `validate_script` (which sees the parsed graph) could not see any of it. After, RON refuses each with the
+  line, column, type and legal spellings: `2:48-2:54: Unexpected field named `emtion` in `Line`, expected
+  one of `speaker`, `kind`, `emotion`, `text`, or `next` instead`. Tests: `a_misspelt_node_field_is_refused`
+  (three typos, key named, the same node spelt right loads), `a_field_the_variant_lacks_is_refused` (in
+  `src/conversation.rs`), `an_unknown_bark_field_is_refused`, `an_unknown_pacing_field_is_refused` (in
+  `tests/bark_serde.rs`). All four fail on `30fcf8c` and pass after. Docs: rustdoc on the three types,
+  README (script section), CHANGELOG `[Unreleased]`/Fixed, `CLAUDE.md` unchanged (no rule changed).
+- **Home-still.** `hs status`: scribe 192.168.1.110 (3 converting) and bmb (5), distill idle (Cuda),
+  qdrant up, 788 queued, 0 stalled. `catalog_recent` (limit 200): psychology and medical papers, MCP-agent
+  papers, SIGGRAPH/Advances slides, one text on computation in nature; no dialogue, comics, legibility,
+  text-layout or game-UI document, so no `Research: corpus` commit. `distill_search` answered (the corpus
+  has nothing on authored-data validation specific to dialogue; the general sources below were found).
+- **Sources, by stem.** Model: `Procedural Storytelling in Game Design -- Anna's Archive` ("If players can't
+  see NPC traits or interact with them, then they effectively don't exist"; speech and thought balloons over
+  the Sim's head), AniBalloons arXiv:2408.06294 via `style.rs` (not in corpus). Shipping game: Yarn Spinner
+  *Errors* page (YS0012, YS0014, YS0016, YS0025: unknown names are errors with a code and a line; web, not a
+  stem), `GameAIPro2_Chapter02_Combat_Dialogue_in_FEAR_The_Illusion_of_Communication`. Technical:
+  `book_metamorphic_testing_review_chen2018` ("a silent resolution or inadequate tests"),
+  `kleppmann_designing_data_intensive_applications` ch. 8 ("weak forms of lying ... misconfiguration"),
+  serde.rs *Container attributes*, `serde_derive-1.0.229/src/de/struct_.rs:580-586`,
+  `ron-0.12.3/src/de/mod.rs:917-922`. Note: `docs/research/authored-data-strictness.md`; `corpus.md` gained
+  three rows and narrowed the Yarn Spinner / Ink gap.
+- **Critique and verdict** (`/tmp/b5/critique.md`, removed at cleanup; findings below). Unknown fields
+  refused on `Node`, `Bark`, `BarkSettings`: **GREAT** (all five validation targets met, each failing
+  before; the correct spellings, a RON round trip, the README script, `examples/dialog_box.rs`'s script and
+  the bench's and walk tests' scripts still parse). README/CHANGELOG: **GREAT** (the quoted message is from
+  a run). Flaws left, all outside the issue: the error is serde's/RON's wording with no "did you mean
+  `emotion`?" (that needs an edit-distance pass and an error type of our own); a host whose files carry a
+  stale key now fails at load, and the crate cannot choose a reload policy (it never reads a file); `Bark`
+  requires `kind` and `emotion` while `Node::Line` defaults them (an error, not silent, so not this pass);
+  no YAML test (`ron` is the only format in dev-dependencies).
+- **Dialog checklist, before -> after** (`/tmp/b5/findings.md`, pass 7's probe copied from `~/b2_base`,
+  run, removed): unchanged except the refusals line. `ink_on_paper` 0 in-between alpha texels, 3 opaque
+  colours (crt: 67199 AA texels by design); ink padding L/R/T/B 12/14/13/15 (speech) at `ink_on_paper`,
+  31/35/33/37 at `crt`; every exit (7 of them) writes `ConversationEnded` exactly once with the lock
+  released; refusals `next 'zz' not found`, `start node 'a' not found`, `choice has no options`; paused
+  `Time<Virtual>` still expires a bark after 3.0 s real; presses greeting 3 (balloons) / 6 (box), gate 3 / 5.
+  New: the parse itself now refuses `emtion`, `knid`, `emotoin`, `ttl`, `max_live` (messages above);
+  `Lnie(..)` and `emotion: Fer` were already refused (unknown variants). A node with the misspelt key
+  parsed to `Neutral`/`Speech` before.
+- **Bugs found, not fixed** (still open; rank ahead of enhancements): a 60-character unbreakable word
+  makes the balloon 1269x136 px at `crt` and 506x53 at `ink_on_paper`, wider than the 568 / 234 px a wrapped
+  240-character line reaches (carried from iteration 3); the speech tail tip sits 6 texels left of the
+  balloon centre at `crt` (128.0 vs 134.0) and 3 at `ink_on_paper` (50.0 vs 53.0).
+- **Bench, eight alternating before/after runs (the raster and frame rows below use the first five, the
+  burst and 200-balloon rows all eight)** (`/tmp/b5/{before,after}/bench_N.txt`; the host ran at load
+  average 4-9 on 10 cores and one `after` run stalled at
+  a 50 ms median frame, none dropped). The change is a serde derive attribute with no runtime path, and the
+  numbers say so: best-of-5 raster rows within -2.0 % to +3.3 % (max +3.3 %, `thought 240 chars
+  ink_on_paper text_px 32`, 7303 -> 7544 us, inside the 7.3-11.9 ms spread of the before runs themselves);
+  median-of-5 rows swing -42 % to +30 % in both directions with identical raster size and bytes per balloon
+  (e.g. `crt` speech 240 chars `text_px` 16 236x199, 446580 bytes). Frame rows, best of 5 (200 balloons:
+  best of 8): 0 balloons 178.7
+  -> 180.6 us, 50: 181.8 -> 183.6, 200: 191.3 -> 192.4, 200 child owners 200.8 -> 201.2; 20-bark burst worst
+  frame, median of 8: 10.5 ms -> 10.7 ms (best 5.5 -> 5.6 ms; worst of 8 18.7 -> 131.6 ms, the stalled
+  run). Assets after 1000 expired barks: Image 0 -> 115 -> 0, StandardMaterial 0 -> 114 -> 0, live 0.
+  Presses unchanged.
+- **Gate** (`/tmp/b5/gate.log`): `cargo build`, `cargo build --release`, `cargo test` (44 unit, 4
+  bark_serde, 2 leaf, 19 walk, 0 failed), `cargo build --examples`, `cargo clippy --all-targets -- -D
+  warnings`, `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`, `rustfmt --edition 2024 --check
+  src/conversation.rs` (clean) and `tests/bark_serde.rs` (clean in the two hunks this pass added; the
+  `bark_pacing_round_trips_through_ron` hunk was there before and stays).
+- **Commits** on `loop/iter-5`: `f4bc8e8` Research: authored data is strict; `8a3500f` the fix (Fixes
+  #12); `ba8df25` rustfmt of the new tests; `dd1aa75` README and CHANGELOG; this log.
+- **Release.** None: the last tag `v0.2.2` (2026-10-31 03:47 CDT) is under 6 hours old, so the
+  `[Unreleased]` entries (#11, #12) ride in the next release.
+- **Cleanup.** No baseline worktree this pass: the baseline bench binary is the start commit's own release
+  build, kept in `/tmp/b5/before/`. Removed `/tmp/b5` (120 MB: bench outputs and binaries, probe output,
+  gate log, findings and critique). Throwaway `tests/zz_probe.rs`, `tests/zz_msgs.rs` and
+  `tests/zz_scripts.rs` were removed from the tree. `df -h` free 27 GiB at the start, 26 GiB after the
+  builds (the clone's `target/` is kept). **Leftover from an earlier pass, not removed:** `~/b2_base`
+  (1.6 MB, detached at `fadce0c`, on `loop/iter-2` only; NOT clean: modified `examples/two_balloons.rs` and
+  `src/balloon.rs`, untracked `tests/zz_probe.rs`; older than two hours; no `b2_base-target`). A person
+  decides.
+- **Pending index.** `10.48550_arxiv.2306.17469` and `10.3390_jimaging4070087` still await conversion
+  (carried from `balloon-anchoring.md`). The Yarn Spinner and Ink manuals are not in the corpus (the Yarn
+  error table was read from its page).
+
+### Ranked backlog for the next iteration
+
+1. **An unbreakable word widens the balloon past the skin's maximum** (bug found in iteration 3, numbers
+   above): break the word at the cap, or refuse it, with a test at 60 `W`. No filed issue, so it is the
+   first candidate only when no issue is a bug.
+2. **#5 speaker aliases**, with `loop/iter-1`'s `tests/alias.rs` and `Research: barks` as the first draft
+   (read it, bring it by path, finish and gate it); then #6, #7, #8 in order.
+3. **Raster cost on the caller's frame**: a 240-character `crt()` line is 2-4 ms at `text_px` 16 and
+   7-9 ms at 32 on a quiet host, the 20-bark burst's worst frame is 5.5-19 ms against 16.7 ms; profile
+   `rasterize` (glyph draw and `blend`), then cache or move it off the frame.
+4. **`Bark` and `Node::Line` disagree on optional fields**: `Bark.kind` and `.emotion` are required where a
+   line defaults them, so a bark file that omits `emotion` fails and a line that omits it loads. Decide one
+   rule (default them on `Bark`, `#[serde(default)]`) and test it with `ron`; add a YAML round trip if a
+   consumer uses YAML.
+5. **Small ones**: the balloon-mode `Choice` arm's "has none" wording for an unregistered key (use
+   `Resolved`), the speech tail tip's 3-6 texel offset from the anchor column, `BUBBLES_SHOT` in `chatter`
+   and `dialog_box`, a permanent test that 1000 expired barks return the asset counts, and a "did you mean"
+   hint on an unknown key.
