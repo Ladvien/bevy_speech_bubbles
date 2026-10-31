@@ -3,12 +3,13 @@
 //! A bubble is text rasterized into an `Image`, put on a unit quad as an unlit alpha-blended material,
 //! anchored above an owner entity and turned to face a camera. See the crate docs for why.
 
-use ab_glyph::{Font, FontArc, PxScale, ScaleFont, point};
+use ab_glyph::{Font, FontArc, GlyphId, PxScale, ScaleFont, point};
 use bevy::asset::RenderAssetUsages;
 use bevy::image::{Image, ImageSampler};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::time::Real;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::style::{BubbleKind, Emotion};
 
@@ -504,22 +505,31 @@ fn rounded_rect_sdf(p: Vec2, half: Vec2, r: f32) -> f32 {
     q.max(Vec2::ZERO).length() + q.x.max(q.y).min(0.0) - r
 }
 
-/// Advance-width of a string in the scaled font (with kerning).
-fn measure<F: Font>(sf: &impl ScaleFont<F>, s: &str) -> f32 {
+/// Advance-width of `s` in the scaled font, kerned against `prev` (the glyph before it, if any).
+/// `prev` is left at `s`'s last glyph, so the next piece continues the same run.
+fn advance<F: Font>(sf: &impl ScaleFont<F>, s: &str, prev: &mut Option<GlyphId>) -> f32 {
     let mut w = 0.0;
-    let mut prev = None;
     for c in s.chars() {
         let id = sf.glyph_id(c);
-        if let Some(p) = prev {
+        if let Some(p) = *prev {
             w += sf.kern(p, id);
         }
         w += sf.h_advance(id);
-        prev = Some(id);
+        *prev = Some(id);
     }
     w
 }
 
-/// Greedy word-wrap to `max_w` px, respecting explicit newlines.
+/// Advance-width of a string in the scaled font (with kerning).
+fn measure<F: Font>(sf: &impl ScaleFont<F>, s: &str) -> f32 {
+    advance(sf, s, &mut None)
+}
+
+/// Word-wrap to `max_w` px, respecting explicit newlines.
+///
+/// Greedy: a word goes on the current line if it fits, else on a fresh one. A word wider than `max_w`
+/// even on a fresh line is broken (see [`break_word`]), so no line is wider than `max_w` unless one
+/// grapheme cluster alone is.
 fn wrap_lines<F: Font>(sf: &impl ScaleFont<F>, text: &str, max_w: f32) -> Vec<String> {
     let space = measure(sf, " ");
     let mut lines = Vec::new();
@@ -531,6 +541,11 @@ fn wrap_lines<F: Font>(sf: &impl ScaleFont<F>, text: &str, max_w: f32) -> Vec<St
             if !cur.is_empty() && cur_w + space + ww > max_w {
                 lines.push(std::mem::take(&mut cur));
                 cur_w = 0.0;
+            }
+            if ww > max_w {
+                // `cur` is empty here: a word this wide never fits after anything.
+                break_word(sf, word, max_w, &mut lines, &mut cur, &mut cur_w);
+                continue;
             }
             if !cur.is_empty() {
                 cur.push(' ');
@@ -545,6 +560,36 @@ fn wrap_lines<F: Font>(sf: &impl ScaleFont<F>, text: &str, max_w: f32) -> Vec<St
         lines.push(String::new());
     }
     lines
+}
+
+/// UAX #14's emergency break: `word` has no line break opportunity and is wider than `max_w`, so it is
+/// broken after the last grapheme cluster that fits. Clusters stay whole (UAX #14 recommends it): an
+/// accent, a flag or a ZWJ sequence never ends a line half-written. Full lines go to `lines`; the last
+/// fragment stays in `cur` (with its width in `cur_w`) so the next word continues after it. A cluster
+/// wider than `max_w` on its own takes a line to itself, which cannot be helped.
+fn break_word<F: Font>(
+    sf: &impl ScaleFont<F>,
+    word: &str,
+    max_w: f32,
+    lines: &mut Vec<String>,
+    cur: &mut String,
+    cur_w: &mut f32,
+) {
+    let mut prev = None;
+    for g in word.graphemes(true) {
+        let mut after = prev;
+        let mut gw = advance(sf, g, &mut after);
+        if !cur.is_empty() && *cur_w + gw > max_w {
+            lines.push(std::mem::take(cur));
+            *cur_w = 0.0;
+            // A new line has no glyph before it to kern against.
+            after = None;
+            gw = advance(sf, g, &mut after);
+        }
+        cur.push_str(g);
+        *cur_w += gw;
+        prev = after;
+    }
 }
 
 /// Horizontal padding wide enough that the text block's corners clear the balloon's corner arc.
@@ -1093,6 +1138,176 @@ mod tests {
                     .iter()
                     .all(|px| px[3] == 0 || px[3] == 255)
             );
+        }
+    }
+
+    // ----- line breaking -----
+
+    /// `text` wrapped at the skin's cap: the lines, each one's measured width, and the cap.
+    fn wrapped(skin: &BalloonSkin, text: &str) -> (Vec<String>, Vec<f32>, f32) {
+        let font = test_font();
+        let m = Metrics::new(skin);
+        let sf = font.as_scaled(PxScale::from(m.cap));
+        let lines = wrap_lines(&sf, text, m.max_text_w);
+        let widths = lines.iter().map(|l| measure(&sf, l)).collect();
+        (lines, widths, m.max_text_w)
+    }
+
+    /// The advance of one `W` at the skin's glyph size: the test font is monospaced.
+    fn w_advance(skin: &BalloonSkin) -> f32 {
+        let font = test_font();
+        let m = Metrics::new(skin);
+        measure(&font.as_scaled(PxScale::from(m.cap)), "W")
+    }
+
+    /// **A word wider than the line is broken, never spilled.** Before this, a 60-letter word went on a
+    /// line of its own, and that line set the balloon's width: 1269 px against a 568 px cap at `crt()`.
+    /// A line of Chinese, which has no spaces, was one such word however short.
+    #[test]
+    fn a_word_wider_than_the_line_is_broken_at_the_cap() {
+        let long = "W".repeat(60);
+        let cases = [
+            long.clone(),
+            format!("go {long} now"),
+            format!("{long} {long}"),
+            "漢".repeat(40),
+        ];
+        for skin in [BalloonSkin::crt(), BalloonSkin::ink_on_paper()] {
+            let adv = w_advance(&skin);
+            for text in &cases {
+                let (lines, widths, cap) = wrapped(&skin, text);
+                assert!(lines.len() > 1, "pixel={}: {text:?} was not broken", skin.pixel);
+                for (line, w) in lines.iter().zip(&widths) {
+                    assert!(
+                        *w <= cap + 1.0e-3,
+                        "pixel={}: line {line:?} is {w:.1} px, past the {cap} px cap",
+                        skin.pixel
+                    );
+                }
+                assert_eq!(
+                    lines.concat().replace(' ', ""),
+                    text.replace(' ', ""),
+                    "breaking a word must not lose or add a character"
+                );
+            }
+            // Broken at the last letter that fits, not early: no fragment has room for one more `W`.
+            let (lines, widths, cap) = wrapped(&skin, &long);
+            for (line, w) in lines.iter().zip(&widths).take(lines.len() - 1) {
+                assert!(
+                    cap - w < adv,
+                    "pixel={}: {line:?} ends {} px short of the cap, with room for another letter",
+                    skin.pixel,
+                    cap - w
+                );
+            }
+        }
+    }
+
+    /// Text with no over-wide word wraps as the greedy wrap always did: a word that fits on a line of
+    /// its own is never broken.
+    #[test]
+    fn a_sentence_with_no_overlong_word_wraps_greedily() {
+        let (lines, ..) = wrapped(&BalloonSkin::crt(), LINE);
+        assert_eq!(lines, ["Hold the gate until dawn,", "then ring the bell twice."]);
+    }
+
+    /// The fragment a broken word ends on is an ordinary line end: the next word continues after it.
+    #[test]
+    fn the_word_after_a_broken_word_continues_on_its_last_fragment() {
+        let (lines, ..) = wrapped(&BalloonSkin::crt(), &format!("{} id", "W".repeat(60)));
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[..2].iter().all(|l| l.chars().all(|c| c == 'W')), "{lines:?}");
+        assert!(
+            lines[2].ends_with(" id") && lines[2].starts_with('W'),
+            "`id` should follow the last fragment on its line: {lines:?}"
+        );
+    }
+
+    /// UAX #14's emergency mode keeps grapheme clusters together: an accent, a flag and a ZWJ family
+    /// are each one user-perceived character and never end a line half-written.
+    #[test]
+    fn a_grapheme_cluster_is_never_split_across_lines() {
+        let clusters = [
+            "e\u{301}",
+            "\u{1F1EB}\u{1F1F7}",
+            "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+        ];
+        for cluster in clusters {
+            let text = cluster.repeat(40);
+            for skin in [BalloonSkin::crt(), BalloonSkin::ink_on_paper()] {
+                let (lines, ..) = wrapped(&skin, &text);
+                assert!(lines.len() > 1, "{cluster:?} x40 was not broken");
+                for line in &lines {
+                    assert_eq!(
+                        line.matches(cluster).count() * cluster.len(),
+                        line.len(),
+                        "pixel={}: line {line:?} is not whole {cluster:?} clusters",
+                        skin.pixel
+                    );
+                }
+            }
+        }
+    }
+
+    /// Bounding box `(min_x, min_y, max_x, max_y)` of the texels drawn in exactly the glyph colour.
+    fn ink_box(rgba: &[u8], w: u32, text: [u8; 4]) -> (u32, u32, u32, u32) {
+        let mut bb = (u32::MAX, u32::MAX, 0, 0);
+        for (i, px) in rgba.as_chunks::<4>().0.iter().enumerate() {
+            if *px == text {
+                let (x, y) = (i as u32 % w, i as u32 / w);
+                bb = (bb.0.min(x), bb.1.min(y), bb.2.max(x), bb.3.max(y));
+            }
+        }
+        bb
+    }
+
+    /// **The balloon of a broken word is an ordinary balloon.** A 60-letter word breaks into pieces that
+    /// each fill a line, so its raster is the very raster of the author writing those pieces as
+    /// separate words. Its glyphs stay within the cap and inside the border, and a pixel skin is still
+    /// ink, border or background and nothing in between.
+    #[test]
+    fn a_broken_word_makes_an_ordinary_balloon() {
+        let font = test_font();
+        let long = "W".repeat(60);
+        for skin in [BalloonSkin::crt(), BalloonSkin::ink_on_paper()] {
+            let m = Metrics::new(&skin);
+            let by_hand = wrapped(&skin, &long).0.join(" ");
+            for kind in [BubbleKind::Speech, BubbleKind::Thought] {
+                let style = styled(kind, true, skin);
+                let (rgba, w, h) = rasterize(&font, &style, &long);
+                let (by_hand_rgba, bw, bh) = rasterize(&font, &style, &by_hand);
+                assert_eq!(
+                    (w, h),
+                    (bw, bh),
+                    "pixel={} {kind:?}: the broken word is not the balloon of its pieces",
+                    skin.pixel
+                );
+                assert!(rgba == by_hand_rgba, "pixel={} {kind:?}: same size, different texels", skin.pixel);
+
+                let (x0, y0, x1, y1) = ink_box(&rgba, w, skin.text);
+                assert!(
+                    (x1 - x0 + 1) as f32 <= m.max_text_w + 2.0,
+                    "pixel={} {kind:?}: the ink is {} px wide, past the {} px cap",
+                    skin.pixel,
+                    x1 - x0 + 1,
+                    m.max_text_w
+                );
+                let edge = m.margin + m.border;
+                assert!(
+                    x0 as f32 >= edge
+                        && y0 as f32 >= edge
+                        && (w - 1 - x1) as f32 >= edge
+                        && (h - 1 - y1) as f32 >= edge,
+                    "pixel={} {kind:?}: ink {x0},{y0}..{x1},{y1} reaches the border of a {w}x{h} raster",
+                    skin.pixel
+                );
+                if skin.pixel {
+                    assert!(
+                        rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 0 || px[3] == 255),
+                        "{kind:?}: a texel is partially transparent"
+                    );
+                }
+            }
         }
     }
 
