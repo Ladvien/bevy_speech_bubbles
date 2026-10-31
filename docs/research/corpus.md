@@ -51,6 +51,17 @@ Gap: no lettering handbook (Eisner, McCloud, Cohn) is in the corpus.
 | `book_real_time_rendering_4th_akenine` | Akenine-Möller et al., *Real-Time Rendering* 4e | ch. 19 scene graphs: transforms composed root to leaves |
 | Bevy 0.20 source (vendored) | `bevy_transform` (`TransformHelper`, propagation), `bevy_camera` (`Visibility`) | the rules the crate's balloons must agree with |
 
+## Diagnostics and configuration errors (technical)
+
+| Stem / DOI | Source | Notes |
+| --- | --- | --- |
+| `book_metamorphic_testing_review_chen2018` | configuration-error injection study (metamorphic-testing review, Chen 2018) | a diagnostic names "the misconfigured parameter's name/value or its location"; a reaction with no symptom is the unstudied failure |
+| `kleppmann_designing_data_intensive_applications` | Kleppmann, *Designing Data-Intensive Applications* ch. 1 | configuration errors by operators are the leading cause of outages; a system can check itself and raise an alert |
+| Bevy 0.20.1 source (vendored) | `bevy_utils/src/once.rs`, `bevy_log/src/once.rs` | `warn_once!` is "once per call site", not per key |
+
+Gap: no dialogue-authoring tool documentation (Yarn Spinner, Ink) is in the corpus; how those tools report
+an unresolved speaker or node name is unsurveyed.
+
 ## Glyph rasterization and text layout (technical)
 
 Not yet surveyed in the corpus: SDF text (Green 2007), coverage rasterizers, UAX #14 line breaking,
