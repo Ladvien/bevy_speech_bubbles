@@ -388,3 +388,140 @@ Numbering: iterations 1 and 2 were passes killed before they logged; their work 
    `Resolved`), the speech tail tip's 3-6 texel offset from the anchor column, `BUBBLES_SHOT` in `chatter`
    and `dialog_box`, a permanent test that 1000 expired barks return the asset counts, and a "did you mean"
    hint on an unknown key.
+
+## Iteration 6 — 2026-10-31 — a word wider than a line is broken, never spilled (balloon and box)
+
+- **Item and why it ranked first.** Issue triage: open #5, #6, #7, #8, all enhancements (unlabelled, filed
+  from Sanctuary), no bug issue, no `consumer` label, no new comment on any of them. The only bug on file
+  is the one this log has carried since iteration 3 (an unbreakable word widens the balloon past the skin's
+  maximum), so it ranks ahead of every enhancement; runner-up #5 (speaker aliases). Skipped, not blocked:
+  #5, #6, #7, #8. Parked work: `git branch --list 'wiggum/parked-*'` is empty; the `WIP(pass N)` commits in
+  `git log --all` are the driver's checkpoints of iterations 3-5, and `loop/iter-1` / `loop/iter-2` are the
+  older parked drafts (aliases, bench), unrelated to a line-breaking fix.
+- **What changed.** `wrap_lines` was a greedy wrap on whitespace, so a word wider than the skin's maximum
+  text width went on a line of its own and that line set the balloon's width (1269x136 at `crt()`, 506x53
+  at `ink_on_paper()`, against 568 / 234 for a wrapped 240-character line); a line of Chinese, with no
+  spaces, was one such word however short. A word that does not fit a line of its own is now broken after
+  the last grapheme cluster that fits (`break_word`, UAX #14's emergency mode, clusters kept whole through
+  `unicode-segmentation`), and the next word continues after its last fragment; a word that fits is never
+  broken. The dialog box's body text and choice rows asked Bevy for the default `LineBreak::WordBoundary`,
+  which lets an over-long word run out of the paper; `wrap_layout()` (`TextLayout::linebreak(
+  LineBreak::WordOrCharacter)`) gives them the same rule. `examples/dialog_box.rs` gained `BUBBLES_SHOT` /
+  `BUBBLES_FRAMES` (offscreen still, fixed 1/60 s clock, every line shown at once) and
+  `BUBBLES_CONVERSATION=wrap`.
+- **Assumed decision (owner may override): a new runtime dependency.** Options: (a) `unicode-segmentation`
+  1 for grapheme clusters; (b) a hand-written "do not break before a combining mark / ZWJ / regional
+  indicator" guard; (c) break at any `char`. Picked (a): UAX #14 recommends clusters, (b) is a partial UAX
+  #29 that gets flags and ZWJ sequences subtly wrong, (c) splits an accent from its letter; the crate is pure
+  Rust with no dependencies of its own and reversible (replace `graphemes(true)`). It is a protected check:
+  `tests/leaf.rs`'s `ALLOWED_DEPS` gains the name, additively, in commit `c73a5ff` ("assumed owner
+  exception: ALLOWED_DEPS gains unicode-segmentation"); no assertion removed or loosened.
+- **Home-still.** `hs status`: scribe 192.168.1.110 (3 converting) and bmb (4), distill idle (Cuda), qdrant
+  up, 780 queued, 0 stalled. `catalog_recent` (limit 200): psychology and medical papers, MCP papers,
+  SIGGRAPH/Advances slides; no dialogue, comics, legibility, text-layout or game-UI document, so no
+  `Research: corpus` commit. `distill_search` answered; the corpus has no line-breaking source (queries for
+  UAX #14, Knuth-Plass, line length and reading, game-UI text fitting returned unrelated documents), so
+  the technical sources are published specifications. The `hs distill search` CLI answers 401 from this
+  clone (no `HS_BACKEND_TOKEN`); the MCP bridge worked.
+- **Sources, by stem.** Model: `10.1007_s10055-024-00949-6` (Cauz, Clarinval & Dumas 2024: world-anchored
+  text on "short" lines). Shipping game: `Game Engine Architecture, Third Edition` section 6.4 (a line of
+  dialog is a UTF-8 string from a localization tool in every supported language). Technical: Unicode UAX
+  #14 introduction (emergency mode, "grapheme clusters be kept together"; ideographs break between
+  characters), MDN `overflow-wrap: break-word`, Bevy 0.20 `bevy_text` (`LineBreak::WordOrCharacter`,
+  parley `OverflowWrap::Anywhere`). Note: `docs/research/line-breaking.md`; `corpus.md` gained five rows
+  under "Glyph rasterization and text layout".
+- **Critique and verdict** (`/tmp/b6/critique.md`, removed at cleanup; findings below). Balloon word break,
+  both kinds, both skins: **GREAT**. Dialog box long-word wrap: **GREAT** as behaviour (stills
+  `box_wrap.png` before / after), with flaw 3 on the record. Flaws left: no hyphen at an emergency break
+  (`gesellsc` / `haftskapitaens` reads as two words; CSS `break-word` draws none and Bevy's box cannot add
+  one); only the emergency break of UAX #14 (a hyphenated compound breaks at the last letter that fits, not
+  after its last hyphen; a Chinese line may start with a comma); the box's wrap has no headless test (no UI
+  layout harness here, and a component-presence test would be wiring); the speaker name plate still does
+  not wrap; a glyph wider than the cap takes a line (the one named exception to "no line wider than the
+  cap").
+- **Dialog checklist, before -> after** (`/tmp/b6/findings.md`, pass 7's probe from `~/b2_base`, p2 extended
+  to both kinds and 40 unspaced ideographs, run on a0962de in `~/b6_base` and on the tree). Balloon sizes:
+  crt Speech 60-letter word 1269x136 -> 568x216, 40 unspaced 869x136 -> 568x176; crt Thought 1269x136 ->
+  581x216, 869x136 -> 568x176; ink Speech 506x53 -> 234x85, 346x53 -> 234x69; ink Thought 506x53 ->
+  246x85, 346x53 -> 236x69; the 240-character references are unchanged (crt 568x496 / 783x496 thought,
+  ink 234x197 / 332x197). Every wrapped line <= the cap (520 px crt, 208 px ink) to 1e-3 (test). Ordinary
+  Arial sentence rasters (crt/ink x speech/thought) byte-identical before/after; the dialog box's `demo`
+  still byte-identical (sha `b5843eac...`); the box's `wrap` still: the 70-letter word ran past the paper's
+  right edge (x 767) and off the image before, wraps in two lines inside it, in the prompt and in the choice
+  row, after. Unchanged: `ink_on_paper` 0 in-between alpha texels, 3 opaque colours (crt 67199 AA texels by
+  design); ink padding L/R/T/B 12/14/13/15 at `ink_on_paper`, 31/35/33/37 at `crt`; tail tip 6 px left of
+  the centre at crt (125.5 vs 134.0), 3 at ink_on_paper; anchor child x error 0.000, same frame 19.996,
+  hidden parent Hidden; 6 of 6 exits `ConversationEnded x1`, lock released; refusals `next 'zz' not found`,
+  `start node 'a' not found`, `choice has no options`; 1000 barks leave Image 0 -> 115 -> 0 and
+  StandardMaterial 0 -> 114 -> 0; paused `Time<Virtual>` still expires a bark after 3.0 s real; presses
+  greeting 3 (balloons) / 6 (box), gate 3 / 5.
+- **Bench** (`/tmp/b6/{before,after}/bench_N.txt`, removed at cleanup). The host ran at load average 8-12 on
+  10 cores and the same binary swung 4x: the 240-character `crt` `text_px` 16 row read 2170 / 2211 / 2635 us
+  on the three quiet before runs and 8031-11575 us on every before run after them. Like-for-like numbers
+  are the paired concurrent runs (before and after started together, same load): that row 8241 / 11575 /
+  9148 us before, 8179 / 11614 / 9068 us after; the 12-character rows (no wrap pressure, least noisy) agree
+  within 1.5 % at every skin (crt 204.6 -> 207.5 us, ink 175.8 -> 176.3 us); raster size and bytes per
+  balloon identical on every row (e.g. 240 chars crt `text_px` 16 speech 236x199, 446580 bytes); assets
+  return to 0; presses unchanged. Because the bench cannot resolve a few percent on this host, the changed
+  function was also timed alone, interleaved in one process (the old and new `wrap_lines` side by side,
+  500 calls x 35 rounds): 12 chars 1.06 -> 1.08 us, 80 chars 36.9 -> 25.2 us (noise), 240 chars 88.7 ->
+  87.4 us; only the pathological 60-letter word costs more (19.9 -> 65.1 us, once per line, and the raster
+  it now makes is smaller). `wrap_lines` is about 4 % of a quiet 240-character raster. The 20-bark burst
+  worst frame 10-200 ms before and after (load, not code). No regression is attributable to the change.
+- **Gate** (`/tmp/b6/gate*.log`): `cargo build`, `cargo build --release`, `cargo test` (49 unit, 4
+  bark_serde, 2 leaf, 19 walk, 0 failed; the first run failed `leaf::the_dependency_list_stays_closed`
+  until `ALLOWED_DEPS` gained the name), `cargo build --examples`, `cargo clippy --all-targets -- -D
+  warnings` (the first run flagged `setup` in the example at 8 arguments; `FontPath` and `Conversation`
+  became one `Launch` resource), `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`, `rustfmt --edition 2024
+  --check src/balloon.rs` (clean); `src/dialog_box.rs` and `examples/dialog_box.rs` keep the hunks they had
+  on a0962de and add none. The debug `cargo build` took 29 minutes on the loaded host.
+- **Commits** on `loop/iter-6`: `07aef75` Research: line breaking; `c73a5ff` assumed owner exception
+  (dependency + `ALLOWED_DEPS`); `8a2339e` the fix; `6791172` the example; `dc3579f` README and CHANGELOG;
+  `14b2f35` the example's `Launch` refactor (clippy's argument limit); `a677ef1` the research note's deviation;
+  then this log. Smoke after the refactor: the `wrap` and `demo` stills are byte-identical to the earlier ones.
+- **Release.** None: the last tag `v0.2.2` is 3 h 53 min old (the 6-hour rule), so the `[Unreleased]`
+  entries (#11, #12 and this) ride in the next release.
+- **Bugs found, not fixed** (rank ahead of enhancements next pass): `dwell_secs` counts words with
+  `split_whitespace`, so a line with no spaces (35 characters of Chinese) is one word and gets the 1.8 s
+  floor; the balloon of a line a player needs ~8 s to read leaves in 1.8 (read from `balloon.rs:50-53`, not
+  measured at run time; the dialog box is unaffected, a press closes it). The speech tail tip sits 6 texels
+  left of the balloon centre at `crt` (125.5 vs 134.0 for a thought) and 3 at `ink_on_paper` (carried from
+  iteration 3, a design offset never measured against the anchor column).
+- **Cleanup.** Removed `~/b6_base` (the a0962de baseline worktree, detached; it shared the clone's
+  `CARGO_TARGET_DIR` instead of a `-target` of its own, so there is no `b6_base-target`; its two throwaway
+  tests, `zz_probe.rs` and `zz_png.rs`, were mine and went first), the same two throwaway tests in the clone
+  (never committed), and this pass's artifacts in the clone's target dir (`release/wrapbench*`,
+  `debug/deps/zz_probe-*` and `zz_png-*`). One slip: the glob `debug/.fingerprint/bevy_speech_bubbles-*/`,
+  meant for the baseline's fingerprints, also matched the clone's own crate; cargo rebuilds that one crate
+  on demand (`cargo check --lib` did it in 3 s, no dependency was touched), nothing else was lost.
+  `/tmp/b6` (510 MB: bench outputs and binaries, stills, PNGs, probe output, gate logs, findings, critique)
+  is removed after this entry is written. `df -h` free 26 GiB at the start, 13 GiB now: the clone's
+  `target/` grew with the debug test, clippy and examples builds for the new dependency and is kept.
+  **Leftover from an earlier pass, not removed:** `~/b2_base` (1.6 MB, detached at `fadce0c`, on
+  `loop/iter-2` only; NOT clean: modified `examples/two_balloons.rs` and `src/balloon.rs`, untracked
+  `tests/zz_probe.rs`; older than two hours; no `b2_base-target`). A person decides.
+- **Pending index.** `10.48550_arxiv.2306.17469` and `10.3390_jimaging4070087` still await conversion
+  (carried from `balloon-anchoring.md`). No text-layout, line-breaking or typography source is in the corpus:
+  index Unicode UAX #14 and #29 and a legibility handbook when a pass can fetch them as documents; Knuth &
+  Plass (1981) was not obtainable here.
+
+### Ranked backlog for the next iteration
+
+1. **`dwell_secs` for unspaced scripts** (bug found this pass, above): count characters, not
+   whitespace-separated words, where the text has no spaces (UAX #14's ideograph class is the test), with a
+   reading rate per script cited from the corpus or a paper (Brysbaert 2019 gives the English figure the
+   crate uses); a test with a 35-character Chinese line.
+2. **#5 speaker aliases**, with `loop/iter-1`'s `tests/alias.rs` and `Research: barks` as the first draft
+   (read it, bring it by path, finish and gate it); then #6, #7, #8 in order.
+3. **A headless UI layout harness** (UiPlugin, TextPlugin, a camera target) so the dialog box's wrapping and
+   fit have a test that `cargo test` runs; it would also cover the speaker name plate, which does not wrap,
+   and the choice rows at a narrow `DialogSkin::width`.
+4. **Raster cost on the caller's frame**: a 240-character `crt()` line is 2.2-2.6 ms at `text_px` 16 on a
+   quiet host and `wrap_lines` alone is 88 us of it; profile the glyph draw and `blend` first, then cache or
+   move it off the frame.
+5. **Small ones**: hyphenate (or at least prefer UAX #14 hyphen and slash opportunities in) an emergency
+   break, and keep a Chinese line's commas off the line start (kinsoku); the balloon-mode `Choice` arm's
+   "has none" wording for an unregistered key; the speech tail tip's 3-6 texel offset from the anchor
+   column; `BUBBLES_SHOT` in `chatter`; a permanent test that 1000 expired barks return the asset counts;
+   `Bark` and `Node::Line` disagree on optional fields (iteration 5, item 4); a "did you mean" hint on an
+   unknown key.
