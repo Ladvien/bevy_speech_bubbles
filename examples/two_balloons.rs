@@ -4,6 +4,10 @@
 //! each anchored above its own cube. They are quads in the scene, not a UI layer — orbit the camera
 //! and they turn to face it; walk one behind the other and it occludes.
 //!
+//! The thinker rides a cart: its cube is a **child entity** (`ChildOf` the cart), so its own
+//! `Transform` is relative to the cart. `track_bubbles` anchors to the owner's world position, so the
+//! balloon floats over the cube wherever the cart carries it, and hides with the cart.
+//!
 //! The camera marker is a **type parameter**, and this example is the reason why. `track_bubbles`
 //! takes `Single<&GlobalTransform, With<C>>`, and Bevy's `Single` silently *skips its system* when the
 //! query matches anything other than exactly one entity. A crate that hard-coded `With<Camera3d>`
@@ -14,9 +18,17 @@
 //! The font is yours to load, too — a library must not assume where your assets live.
 //!
 //! Run: `cargo run -p bevy_speech_bubbles --example two_balloons -- <path-to-font.ttf>`
+//!
+//! `BUBBLES_SHOT=<file.png>` saves the window after `BUBBLES_FRAMES` frames (default 90) and exits.
+//! The clock then steps a fixed 1/60 s per frame, so a frame number is the same picture on every
+//! machine.
+
+use std::time::Duration;
 
 use ab_glyph::FontArc;
 use bevy::prelude::*;
+use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
+use bevy::time::TimeUpdateStrategy;
 use bevy_speech_bubbles::{
     build_bubble, dwell_secs, expire_bubbles, track_bubbles, BalloonSkin, Bubble, BubbleAssets, BubbleKind, BubblePx,
     BubbleStyle, BubbleTtl, Emotion,
@@ -29,6 +41,10 @@ struct ExampleCamera;
 /// Carries the font from `main` into `setup`, where `Assets<Mesh>` finally exists.
 #[derive(Resource)]
 struct LoadedFont(FontArc);
+
+/// The cart the thinker rides. It slides to and fro, carrying its child cube and that cube's balloon.
+#[derive(Component)]
+struct Cart;
 
 const SPOKEN: &str = "Contact, west corridor.";
 const THOUGHT: &str = "...that was not a rat.";
@@ -60,27 +76,53 @@ fn main() {
         }
     };
 
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "bevy_speech_bubbles — balloons live in the world".into(),
-                resolution: (900u32, 620u32).into(),
-                ..default()
-            }),
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "bevy_speech_bubbles — balloons live in the world".into(),
+            resolution: (900u32, 620u32).into(),
             ..default()
-        }))
-        .insert_resource(LoadedFont(font))
-        .add_systems(Startup, setup)
-        .add_systems(
-            Update,
-            (
-                // Your marker, not `Camera3d`.
-                track_bubbles::<ExampleCamera>,
-                expire_bubbles,
-                orbit_camera,
-            ),
-        )
-        .run();
+        }),
+        ..default()
+    }))
+    .insert_resource(LoadedFont(font))
+    .add_systems(Startup, setup)
+    .add_systems(
+        Update,
+        (
+            // Your marker, not `Camera3d`.
+            track_bubbles::<ExampleCamera>,
+            expire_bubbles,
+            orbit_camera,
+            slide_cart,
+        ),
+    );
+    capture_knob(&mut app);
+    app.run();
+}
+
+/// `BUBBLES_SHOT=<file.png>`: on a fixed 1/60 s clock, save the window after `BUBBLES_FRAMES` frames
+/// (default 90), then exit.
+fn capture_knob(app: &mut App) {
+    let Ok(path) = std::env::var("BUBBLES_SHOT") else {
+        return;
+    };
+    let frames: u32 = std::env::var("BUBBLES_FRAMES")
+        .ok()
+        .and_then(|f| f.parse().ok())
+        .unwrap_or(90);
+    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)))
+        .add_systems(Last, move |mut commands: Commands, mut frame: Local<u32>| {
+            *frame += 1;
+            if *frame == frames {
+                commands
+                    .spawn(Screenshot::primary_window())
+                    .observe(save_to_disk(path.clone()))
+                    .observe(|_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+                        exit.write(AppExit::Success);
+                    });
+            }
+        });
 }
 
 fn setup(
@@ -95,20 +137,39 @@ fn setup(
     let assets = BubbleAssets { quad: meshes.add(Rectangle::new(1.0, 1.0)), font: font.0.clone() };
 
     let cube = meshes.add(Cuboid::new(0.8, 1.6, 0.8));
+
+    // The talker stands on the floor: a root entity.
+    let talker = commands
+        .spawn((
+            Mesh3d(cube.clone()),
+            MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.30, 0.55, 0.85), ..default() })),
+            Transform::from_xyz(-1.6, 0.8, 0.0),
+        ))
+        .id();
+
+    // The thinker rides a cart: its `Transform` is relative to the cart, not to the world.
+    let cart = commands
+        .spawn((
+            Cart,
+            Mesh3d(meshes.add(Cuboid::new(1.4, 0.2, 1.4))),
+            MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.35, 0.30, 0.25), ..default() })),
+            Transform::from_xyz(1.6, 0.1, 0.0),
+        ))
+        .id();
+    let thinker = commands
+        .spawn((
+            Mesh3d(cube.clone()),
+            MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.75, 0.45, 0.30), ..default() })),
+            Transform::from_xyz(0.0, 0.9, 0.0),
+            ChildOf(cart),
+        ))
+        .id();
+
     let speakers = [
-        (Vec3::new(-1.6, 0.8, 0.0), Color::srgb(0.30, 0.55, 0.85), SPOKEN, BubbleKind::Speech, Emotion::Surprise),
-        (Vec3::new(1.6, 0.8, 0.0), Color::srgb(0.75, 0.45, 0.30), THOUGHT, BubbleKind::Thought, Emotion::Fear),
+        (talker, SPOKEN, BubbleKind::Speech, Emotion::Surprise),
+        (thinker, THOUGHT, BubbleKind::Thought, Emotion::Fear),
     ];
-
-    for (pos, color, text, kind, emotion) in speakers {
-        let owner = commands
-            .spawn((
-                Mesh3d(cube.clone()),
-                MeshMaterial3d(materials.add(StandardMaterial { base_color: color, ..default() })),
-                Transform::from_translation(pos),
-            ))
-            .id();
-
+    for (owner, text, kind, emotion) in speakers {
         // Built once per line, not per frame — the raster is the expensive part.
         let style = BubbleStyle { kind, emotion, tail: true, skin: BalloonSkin::crt() };
         let face = build_bubble(&assets, &mut images, &mut materials, &style, text);
@@ -156,5 +217,12 @@ fn orbit_camera(time: Res<Time>, mut cam: Query<&mut Transform, With<ExampleCame
     for mut tf in &mut cam {
         tf.translation = Vec3::new(t.sin() * 7.0, 3.0, t.cos() * 7.0);
         tf.look_at(Vec3::new(0.0, 1.6, 0.0), Vec3::Y);
+    }
+}
+
+/// Slide the cart to and fro along X: its child cube, and so the thought balloon, ride along.
+fn slide_cart(time: Res<Time>, mut cart: Query<&mut Transform, With<Cart>>) {
+    for mut tf in &mut cart {
+        tf.translation.x = 1.6 + (time.elapsed_secs() * 0.8).sin() * 0.6;
     }
 }
