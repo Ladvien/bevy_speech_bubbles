@@ -333,6 +333,246 @@ fn a_bark_is_always_a_world_balloon() {
     assert_eq!(balloons.len(), 1, "only the villager's bark has a head to float over");
 }
 
+/// Records the WARN and ERROR events this crate logs, so a test can ask what a host would read.
+mod warned {
+    use std::fmt::Debug;
+    use std::sync::{Arc, Mutex};
+
+    use bevy::ecs::schedule::SingleThreadedExecutor;
+    use bevy::log::tracing::{
+        self, Event, Level, Subscriber,
+        field::{Field, Visit},
+    };
+    use bevy::log::tracing_subscriber::{Layer, layer::Context, layer::SubscriberExt, registry::Registry};
+    use bevy::prelude::*;
+
+    #[derive(Clone, Default)]
+    struct Recorder(Arc<Mutex<Vec<String>>>);
+
+    struct Message(String);
+
+    impl Visit for Message {
+        fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
+            if field.name() == "message" {
+                self.0 = format!("{value:?}");
+            }
+        }
+    }
+
+    impl<S: Subscriber> Layer<S> for Recorder {
+        fn on_event(&self, event: &Event<'_>, _: Context<'_, S>) {
+            // `Level` orders by verbosity: ERROR is the least, so `<= WARN` is WARN and ERROR.
+            let meta = event.metadata();
+            if *meta.level() <= Level::WARN && meta.target().starts_with("bevy_speech_bubbles") {
+                let mut message = Message(String::new());
+                event.record(&mut message);
+                if let Ok(mut log) = self.0.lock() {
+                    log.push(message.0);
+                }
+            }
+        }
+    }
+
+    /// Run `f` on this thread with a recorder installed, and return every WARN/ERROR the crate logged.
+    /// The runtime's schedules run single-threaded so their systems log on the test thread.
+    pub fn record(app: &mut App, f: impl FnOnce(&mut App)) -> Vec<String> {
+        let single = |schedule: &mut Schedule| {
+            schedule.set_executor(SingleThreadedExecutor::new());
+        };
+        app.edit_schedule(PreUpdate, single);
+        app.edit_schedule(Update, single);
+        let recorder = Recorder::default();
+        let subscriber = Registry::default().with(recorder.clone());
+        tracing::subscriber::with_default(subscriber, || f(app));
+        recorder.0.lock().map(|log| log.clone()).unwrap_or_default()
+    }
+}
+
+/// A bark world: the walk app plus a font, a registered villager with a head, and the narrator `app()`
+/// registers without one.
+fn bark_app() -> App {
+    let mut app = app();
+    let font = ab_glyph::FontArc::try_from_slice(include_bytes!("data/FiraMono-subset.ttf"))
+        .expect("the test font parses");
+    app.insert_resource(BubbleAssets {
+        quad: Handle::default(),
+        font,
+    });
+    let villager = app.world_mut().spawn((Transform::default(), Visibility::default())).id();
+    app.world_mut().resource_mut::<Speakers>().0.insert(
+        "villager".into(),
+        Speaker {
+            entity: Some(villager),
+            name: "Villager".into(),
+            portrait: None,
+        },
+    );
+    app
+}
+
+fn bark(speaker: &str) -> Bark {
+    use bevy_speech_bubbles::{BubbleKind, Emotion};
+    Bark {
+        speaker: speaker.into(),
+        kind: BubbleKind::Speech,
+        emotion: Emotion::Neutral,
+        text: "Stuck!".into(),
+    }
+}
+
+fn balloons(app: &mut App) -> usize {
+    let world = app.world_mut();
+    world.query::<&bevy_speech_bubbles::Bubble>().iter(world).count()
+}
+
+/// A bark for a key that is not in `Speakers` is a host mistake (a misspelt key in a bark file): it is
+/// dropped, no balloon appears, and the log says which key and which bark.
+#[test]
+fn a_bark_for_an_unknown_speaker_warns_naming_the_key() {
+    let mut app = bark_app();
+    app.world_mut().write_message(bark("nobody"));
+    let log = warned::record(&mut app, |app| {
+        app.update();
+        app.update();
+    });
+    assert_eq!(log.len(), 1, "one warning for the one dropped bark: {log:?}");
+    assert!(log[0].contains("nobody"), "the warning names the key: {log:?}");
+    assert!(log[0].contains("Stuck!"), "the warning names the bark: {log:?}");
+    assert_eq!(balloons(&mut app), 0, "nothing is shown for an unknown speaker");
+}
+
+/// A registered speaker with no entity is a narrator: it has no head to float over, and the drop is
+/// documented and quiet.
+#[test]
+fn a_bark_for_a_registered_narrator_stays_quiet() {
+    let mut app = bark_app();
+    app.world_mut().write_message(bark("narrator"));
+    let log = warned::record(&mut app, |app| {
+        app.update();
+        app.update();
+    });
+    assert!(log.is_empty(), "a narrator's bark is dropped without a warning: {log:?}");
+    assert_eq!(balloons(&mut app), 0);
+}
+
+/// The warning is once per key, not once per call site: the same misspelt key does not repeat itself,
+/// and a second misspelt key still speaks up.
+#[test]
+fn an_unknown_bark_speaker_warns_once_per_key() {
+    let mut app = bark_app();
+    for key in ["nobody", "nobody", "somebody", "nobody"] {
+        app.world_mut().write_message(bark(key));
+    }
+    let log = warned::record(&mut app, |app| {
+        for _ in 0..6 {
+            app.update();
+        }
+    });
+    assert_eq!(log.len(), 2, "one warning per distinct key: {log:?}");
+    assert!(log.iter().any(|l| l.contains("'nobody'")), "{log:?}");
+    assert!(log.iter().any(|l| l.contains("'somebody'")), "{log:?}");
+}
+
+/// A key that was warned about and is registered later shows its bark: the warning set only decides what
+/// to say, never what to drop.
+#[test]
+fn a_bark_speaker_registered_after_its_warning_gets_its_balloon() {
+    let mut app = bark_app();
+    app.world_mut().write_message(bark("late"));
+    let log = warned::record(&mut app, |app| {
+        app.update();
+        app.update();
+    });
+    assert_eq!(log.len(), 1, "{log:?}");
+    let head = app.world_mut().spawn((Transform::default(), Visibility::default())).id();
+    app.world_mut().resource_mut::<Speakers>().0.insert(
+        "late".into(),
+        Speaker {
+            entity: Some(head),
+            name: String::new(),
+            portrait: None,
+        },
+    );
+    app.world_mut().write_message(bark("late"));
+    let log = warned::record(&mut app, |app| {
+        app.update();
+        app.update();
+    });
+    assert!(log.is_empty(), "{log:?}");
+    assert_eq!(balloons(&mut app), 1);
+}
+
+const GHOST: &str = r#"
+(
+  conversations: {
+    "t": (
+      start: "a",
+      nodes: {
+        "a": Line(speaker: "ghost", text: "Boo.", next: None),
+      },
+    ),
+  },
+)
+"#;
+
+const NARRATED: &str = r#"
+(
+  conversations: {
+    "t": (
+      start: "a",
+      nodes: {
+        "a": Line(speaker: "narrator", text: "Dusk.", next: None),
+      },
+    ),
+  },
+)
+"#;
+
+/// Walk a one-line conversation in balloon mode until it ends, and return what the log said.
+fn balloon_walk(src: &str) -> (Vec<String>, Vec<String>) {
+    let mut app = app_with(src);
+    app.insert_resource(Presenter::Balloons);
+    let font = ab_glyph::FontArc::try_from_slice(include_bytes!("data/FiraMono-subset.ttf"))
+        .expect("the test font parses");
+    app.insert_resource(BubbleAssets {
+        quad: Handle::default(),
+        font,
+    });
+    let mut ends = Vec::new();
+    let log = warned::record(&mut app, |app| {
+        start(app);
+        for _ in 0..10 {
+            ends.extend(ended(app));
+            app.update();
+        }
+        ends.extend(ended(app));
+    });
+    assert!(
+        app.world().get_resource::<ConversationLock>().is_none(),
+        "the lock is released"
+    );
+    (log, ends)
+}
+
+/// A balloon-mode line by a key that is not in `Speakers` is skipped with a warning naming the key and
+/// the node; the conversation still ends once.
+#[test]
+fn a_balloon_line_by_an_unknown_speaker_warns_and_ends_once() {
+    let (log, ends) = balloon_walk(GHOST);
+    assert_eq!(log.len(), 1, "{log:?}");
+    assert!(log[0].contains("'ghost'"), "the warning names the key: {log:?}");
+    assert!(log[0].contains("'a'"), "the warning names the node: {log:?}");
+    assert_eq!(ends, vec!["t".to_string()]);
+}
+
+/// The registered narrator's balloon-mode line is skipped as it always was, with no warning.
+#[test]
+fn a_balloon_line_by_a_registered_narrator_stays_quiet() {
+    let (log, ends) = balloon_walk(NARRATED);
+    assert!(log.is_empty(), "{log:?}");
+    assert_eq!(ends, vec!["t".to_string()]);
+}
+
 /// What a host system ordered after the dialog saw of Space.
 #[derive(Resource, Default)]
 struct HostSaw {
