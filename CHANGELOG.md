@@ -6,6 +6,8 @@ All notable changes to this crate are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-31
+
 ### Added
 
 - `Bark` and `BarkSettings` are `serde` types, so a game or a tool authors barks and their pacing as
