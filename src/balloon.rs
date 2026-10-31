@@ -81,7 +81,9 @@ pub struct BubbleOffsetPx(pub Vec2);
 pub struct BalloonScale {
     /// World units per raster texel.
     pub world_per_px: f32,
-    /// Height above the owner's translation where the balloon's bottom edge sits.
+    /// Height above the owner's world position (its `GlobalTransform` translation, composed from its
+    /// own and its ancestors' `Transform`s in the frame it is tracked) where the balloon's bottom edge
+    /// sits.
     pub anchor_y: f32,
 }
 
@@ -256,17 +258,75 @@ type TrackedBubble = (
     &'static mut Visibility,
 );
 
+/// What [`track_bubbles`] reads on an owner and on each of its ancestors.
+type Anchoring = (
+    Option<&'static Transform>,
+    Option<&'static Visibility>,
+    Option<&'static ChildOf>,
+);
+
+/// Where `owner` is in the world and whether it is visible, from this frame's `Transform`s and
+/// `Visibility`s of the owner and its ancestors: the translation of the `GlobalTransform` and the
+/// value of the `InheritedVisibility` Bevy will propagate for it in `PostUpdate`. `None` when the
+/// owner has no `Transform` or no `Visibility`.
+///
+/// The walk follows `ChildOf` to the root. An ancestor without a `Transform` ends the composition (Bevy
+/// propagates no world position through it either); one without a `Visibility` counts as visible, as
+/// in Bevy's visibility propagation.
+fn owner_in_world(owner: Entity, chain: &Query<Anchoring, Without<Bubble>>) -> Option<(Vec3, bool)> {
+    let (Some(tf), Some(vis), mut parent) = chain.get(owner).ok()? else {
+        return None;
+    };
+    let mut point = tf.translation;
+    let mut composing = true;
+    // `Inherited` defers to the parent; the first `Visible` or `Hidden` up the chain decides.
+    let mut visible = decides(Some(vis));
+    while let Some(child_of) = parent {
+        if !composing && visible.is_some() {
+            break;
+        }
+        let Ok((tf, vis, next)) = chain.get(child_of.parent()) else {
+            break;
+        };
+        match tf {
+            Some(tf) if composing => point = tf.transform_point(point),
+            _ => composing = false,
+        }
+        if visible.is_none() {
+            visible = decides(vis);
+        }
+        parent = next;
+    }
+    // A root that inherits is visible.
+    Some((point, visible.unwrap_or(true)))
+}
+
+/// What one link of the chain says about visibility: `None` defers to its parent.
+fn decides(vis: Option<&Visibility>) -> Option<bool> {
+    match vis {
+        Some(Visibility::Inherited) => None,
+        Some(Visibility::Visible) | None => Some(true),
+        Some(Visibility::Hidden) => Some(false),
+    }
+}
+
 /// Track every bubble to its owner: size the quad, anchor above the head, face the camera, mirror
 /// visibility, despawn orphans. Cosmetic → `Update` (never pinned state). Copies the `health.rs`
 /// billboard.
 ///
 /// The size comes from [`BubblePx`] and the live [`BalloonScale`] (the default when the resource is
 /// absent), so changing the scale between frames resizes every balloon that has a [`BubblePx`].
+///
+/// The owner may sit anywhere in a hierarchy (a rider `ChildOf` a cart, a head under a body): the
+/// anchor is its world position, composed from its own and its ancestors' `Transform`s in this frame,
+/// so it is not a frame behind `GlobalTransform`'s propagation in `PostUpdate`. The balloon is a root
+/// entity and shows exactly when the owner would: hidden when the owner or an ancestor it inherits
+/// from is `Visibility::Hidden`.
 pub fn track_bubbles<C: Component>(
     mut commands: Commands,
     camera: Single<&GlobalTransform, With<C>>,
     scale: Option<Res<BalloonScale>>,
-    owners: Query<(&Transform, &Visibility), Without<Bubble>>,
+    chain: Query<Anchoring, Without<Bubble>>,
     mut bubbles: Query<TrackedBubble>,
 ) {
     let scale = scale.map_or_else(BalloonScale::default, |s| *s);
@@ -275,7 +335,7 @@ pub fn track_bubbles<C: Component>(
     let up = cam_rot * Vec3::Y;
     let right = cam_rot * Vec3::X;
     for (entity, bubble, face, offset_px, mut tf, mut vis) in &mut bubbles {
-        let Ok((owner_tf, owner_vis)) = owners.get(bubble.owner) else {
+        let Some((owner_pos, owner_visible)) = owner_in_world(bubble.owner, &chain) else {
             commands.entity(entity).despawn();
             continue;
         };
@@ -284,7 +344,7 @@ pub fn track_bubbles<C: Component>(
             tf.scale = Vec3::new(size.x, size.y, 1.0);
         }
         let offset = offset_px.map_or(bubble.offset, |o| o.0 * scale.world_per_px);
-        let anchor = owner_tf.translation + Vec3::Y * scale.anchor_y;
+        let anchor = owner_pos + Vec3::Y * scale.anchor_y;
         let half_h = tf.scale.y * 0.5;
         let toward = (cam_pos - anchor).normalize_or_zero();
         tf.translation = anchor
@@ -292,7 +352,13 @@ pub fn track_bubbles<C: Component>(
             + right * offset.x
             + toward * CAMERA_NUDGE;
         tf.rotation = cam_rot;
-        *vis = *owner_vis;
+        // A root balloon that inherits is visible; written only on a change, so a steady balloon does
+        // not re-run visibility propagation every frame.
+        vis.set_if_neq(if owner_visible {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
     }
 }
 
@@ -1003,6 +1069,145 @@ mod tests {
         let tf = *app.world().get::<Transform>(balloon).expect("balloon");
         assert!((tf.scale.x - 2.0).abs() < 1e-5 && (tf.scale.y - 0.8).abs() < 1e-5, "{:?}", tf.scale);
         assert!((tf.translation.y - (4.0 + 0.4 + 0.2)).abs() < 0.01, "{:?}", tf.translation);
+    }
+
+    // ----- owners in a hierarchy (#10) -----
+
+    /// A balloon on `owner`, raster 100x40 texels, at the default scale.
+    fn balloon_on(app: &mut App, owner: Entity) -> Entity {
+        app.world_mut()
+            .spawn((
+                Bubble {
+                    owner,
+                    offset: Vec2::ZERO,
+                },
+                BubblePx(UVec2::new(100, 40)),
+                Transform::default(),
+                Visibility::default(),
+            ))
+            .id()
+    }
+
+    /// **A speaker that is a child entity gets its balloon over its world position**, not at its
+    /// parent-relative offset from the world origin (#10's input).
+    #[test]
+    fn a_child_owner_gets_its_balloon_over_its_world_position() {
+        let mut app = App::new();
+        app.add_plugins(TransformPlugin)
+            .add_systems(Update, track_bubbles::<Cam>);
+        app.world_mut()
+            .spawn((Cam, GlobalTransform::from(Transform::from_xyz(10.0, 1.0, 1000.0))));
+        let parent = app
+            .world_mut()
+            .spawn((Transform::from_xyz(10.0, 0.0, 0.0), Visibility::default()))
+            .id();
+        let owner = app
+            .world_mut()
+            .spawn((Transform::default(), Visibility::default(), ChildOf(parent)))
+            .id();
+        let balloon = balloon_on(&mut app, owner);
+        app.update();
+        let tf = app.world().get::<Transform>(balloon).expect("balloon");
+        assert!((tf.translation.x - 10.0).abs() < 0.05, "{:?}", tf.translation);
+    }
+
+    /// **The anchor is the owner's world position in the frame it is tracked**: through a translated,
+    /// rotated and scaled grandparent and parent it equals the `GlobalTransform` Bevy propagates for
+    /// the owner at the end of the same update, also on the frame the grandparent moves (no frame of
+    /// lag behind propagation).
+    #[test]
+    fn a_nested_owner_anchors_at_its_propagated_world_position_in_the_same_frame() {
+        let mut app = App::new();
+        app.add_plugins(TransformPlugin)
+            .add_systems(Update, track_bubbles::<Cam>);
+        let cam = Vec3::new(-3.0, 4.0, 900.0);
+        app.world_mut()
+            .spawn((Cam, GlobalTransform::from(Transform::from_translation(cam))));
+        let grandparent = app
+            .world_mut()
+            .spawn((
+                Transform::from_xyz(4.0, 1.0, -2.0)
+                    .with_rotation(Quat::from_rotation_y(0.7))
+                    .with_scale(Vec3::splat(2.0)),
+                Visibility::default(),
+            ))
+            .id();
+        let parent = app
+            .world_mut()
+            .spawn((
+                Transform::from_xyz(1.5, 0.25, 0.0).with_rotation(Quat::from_rotation_z(0.4)),
+                Visibility::default(),
+                ChildOf(grandparent),
+            ))
+            .id();
+        let owner = app
+            .world_mut()
+            .spawn((Transform::from_xyz(0.0, 1.0, 0.5), Visibility::default(), ChildOf(parent)))
+            .id();
+        let balloon = balloon_on(&mut app, owner);
+        let scale = BalloonScale::default();
+
+        let check = |app: &App, when: &str| {
+            let world_pos = app.world().get::<GlobalTransform>(owner).expect("owner").translation();
+            let anchor = world_pos + Vec3::Y * scale.anchor_y;
+            let half_h = 40.0 * scale.world_per_px * 0.5;
+            let expected = anchor + Vec3::Y * half_h + (cam - anchor).normalize() * CAMERA_NUDGE;
+            let got = app.world().get::<Transform>(balloon).expect("balloon").translation;
+            assert!(
+                got.distance(expected) < 1e-4,
+                "{when}: balloon at {got:?}, owner's world position {world_pos:?} wants {expected:?}"
+            );
+        };
+
+        app.update();
+        check(&app, "first frame");
+        app.world_mut()
+            .get_mut::<Transform>(grandparent)
+            .expect("grandparent")
+            .translation += Vec3::new(-6.0, 0.5, 3.0);
+        app.update();
+        check(&app, "the frame the grandparent moved");
+    }
+
+    /// **A balloon shows exactly when its owner would**, by Bevy's inheritance rule: hidden with a
+    /// hidden parent, back with it, and shown for an owner set `Visible` under a hidden parent.
+    #[test]
+    fn a_balloon_hides_with_its_owners_parent() {
+        use bevy::camera::visibility::VisibilityPlugin;
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin, VisibilityPlugin))
+            .init_asset::<Mesh>()
+            .init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>()
+            .add_systems(Update, track_bubbles::<Cam>);
+        app.world_mut().spawn((Cam, GlobalTransform::default()));
+        let parent = app
+            .world_mut()
+            .spawn((Transform::from_xyz(10.0, 0.0, 0.0), Visibility::default()))
+            .id();
+        let owner = app
+            .world_mut()
+            .spawn((Transform::default(), Visibility::default(), ChildOf(parent)))
+            .id();
+        let balloon = balloon_on(&mut app, owner);
+        let shown = |app: &App| app.world().get::<InheritedVisibility>(balloon).expect("balloon").get();
+
+        app.update();
+        assert!(shown(&app), "a visible owner's balloon is visible");
+
+        *app.world_mut().get_mut::<Visibility>(parent).expect("parent") = Visibility::Hidden;
+        app.update();
+        assert!(!app.world().get::<InheritedVisibility>(owner).expect("owner").get());
+        assert!(!shown(&app), "the owner is hidden through its parent, so is its balloon");
+
+        *app.world_mut().get_mut::<Visibility>(owner).expect("owner") = Visibility::Visible;
+        app.update();
+        assert!(shown(&app), "an owner set Visible shows under a hidden parent, and so does its balloon");
+
+        *app.world_mut().get_mut::<Visibility>(owner).expect("owner") = Visibility::Inherited;
+        *app.world_mut().get_mut::<Visibility>(parent).expect("parent") = Visibility::Inherited;
+        app.update();
+        assert!(shown(&app), "the parent shown again, the balloon is back");
     }
 
     /// A bubble without a `BubblePx` (a host that spawns its own quads) keeps the scale it was given.
