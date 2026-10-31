@@ -1,5 +1,5 @@
 //! **A bark is data**: `Bark` and `BarkSettings` round-trip through RON, so a game project or a
-//! tool (the bevy_emerge editor, Ladvien/bevy_emerge#106) stores barks with this crate's own types
+//! tool (the bevy_grimoire editor, bevy-coven/bevy_grimoire#106) stores barks with this crate's own types
 //! and never a second schema. Fixes #9.
 
 use bevy_speech_bubbles::conversation::{Bark, BarkSettings};

@@ -14,7 +14,7 @@ When one of these seems necessary, stop and ask. Name the exact command, what it
 
 ## Source of truth
 
-This repository, [`Ladvien/bevy_speech_bubbles`](https://github.com/Ladvien/bevy_speech_bubbles), is canonical. MIT OR Apache-2.0. It co-evolves with Sanctuary (`/Users/ladvien/sanctuary`, a path dependency): fixes and features land here first, in their own commit with tests here, and are never patched into the game. Run `cargo test` here before pushing and in Sanctuary before relying on the change.
+This repository, [`bevy-coven/bevy_speech_bubbles`](https://github.com/bevy-coven/bevy_speech_bubbles), is canonical. MIT OR Apache-2.0. It co-evolves with Sanctuary (`/Users/ladvien/sanctuary`, a path dependency): fixes and features land here first, in their own commit with tests here, and are never patched into the game. Run `cargo test` here before pushing and in Sanctuary before relying on the change.
 
 ## Layout
 

@@ -3,7 +3,7 @@ description: One iteration of the bevy_speech_bubbles improvement loop
 argument-hint: "[optional focus, e.g. 'issue #6 only']"
 ---
 
-One run of this command is one iteration of a long-running loop on bevy_speech_bubbles, a Bevy 0.20 dialog kit: world-space speech and thought balloons (text rasterized on the CPU with `ab_glyph` into an `Image` on a billboarded quad), a conversation graph and runtime (lines, choices, barks) authored as serde data, and a skinnable screen dialog box built from Bevy UI nodes. Sanctuary speaks through it (every villager's line, bark and hint card; a path dependency that co-evolves with it), and bevy_emerge's dialogue family issue (F10, #106) will host it as the editor's conversation graph, previewed with the crate's own plugin over the speaker. Do ONE improvement per iteration, the single most valuable one from a game developer's point of view, finish it completely, then stop.
+One run of this command is one iteration of a long-running loop on bevy_speech_bubbles, a Bevy 0.20 dialog kit: world-space speech and thought balloons (text rasterized on the CPU with `ab_glyph` into an `Image` on a billboarded quad), a conversation graph and runtime (lines, choices, barks) authored as serde data, and a skinnable screen dialog box built from Bevy UI nodes. Sanctuary speaks through it (every villager's line, bark and hint card; a path dependency that co-evolves with it), and bevy_grimoire's dialogue family issue (F10, #106) will host it as the editor's conversation graph, previewed with the crate's own plugin over the speaker. Do ONE improvement per iteration, the single most valuable one from a game developer's point of view, finish it completely, then stop.
 
 This crate must be legible AND correct AND cheap on the caller's frame. A balloon whose text spills its cap or blurs at its native size, a conversation that hangs, panics, ends twice, eats a key it did not use or leaves the game locked, and a bark burst that hitches the frame while its text is rasterized are all failures, however good the screenshot looks. The judgement here is a game UI and narrative-systems engineer's: text a player reads at a glance at the scale the host chose, a runtime whose every press and every exit is accounted for, a raster paid once per line and never per frame, and an API that leaves the camera, the font, the speakers and the pause to the host (`CLAUDE.md`, "The non-negotiables").
 
@@ -168,7 +168,7 @@ each line with a measurement, not an impression:
 Before you pick an item, list the repository's open issues and triage them:
 
 ```sh
-gh issue list --repo Ladvien/bevy_speech_bubbles --state open --limit 100 \
+gh issue list --repo bevy-coven/bevy_speech_bubbles --state open --limit 100 \
   --json number,title,labels,createdAt --jq '.[] | "#\(.number) \(.title)"'
 ```
 
@@ -183,7 +183,7 @@ Then, in this order:
    others.
 2. **An issue labelled `consumer` is the pass's item next, ahead of the series and your own candidates.**
    A project built on this crate needs it and is waiting. The `consumer:<name>` label says which project;
-   `consumer:bevy_emerge` is the owner's editor. Its own work resumes when the issue is closed as completed
+   `consumer:bevy_grimoire` is the owner's editor. Its own work resumes when the issue is closed as completed
    and it moves its git pin to a `main` commit containing the fix. Take the oldest one you can work this pass.
    - **Build the general form.** The requester is the example, never a name in this crate's API, a path or a
      default: this crate serves other projects too. Where an issue asks for something shaped to one project,
@@ -243,13 +243,13 @@ what matters most to a game developer who will ship this:
 Ownership is a gate: the camera (a marker type the host names), the font, the speakers, the scripts and
 the pause are the host's (`CLAUDE.md`); the crate never names a game's types, never reads a file and
 never stops time itself. Quest state, save games and the editor's graph view belong to the host or to
-bevy_emerge. Do not build those here; add a hook (a message, a query, a value the host passes) instead.
+bevy_grimoire. Do not build those here; add a hook (a message, a query, a value the host passes) instead.
 
 State in one sentence why your pick beats the runner-up. If it is too big, carve off the most valuable
 self-contained slice. Record the ranked candidate list in the log, not only the winner.
 
 **A pass never ends idle** (owner, 2026-10-29: "If they're not addressing bugs or enhancing features, they need to evolve their own code base to support Bevy Emerge better or add new features. Research these things in home still, implement them. They shouldn't stay idle."). An empty issue list or a stale backlog is this step's input, never a reason to ship nothing, and a candidate is not "speculation" once it is researched. When the ranked list above gives no workable item, take the first of these that applies:
-1. **What the crate's consumers hand-roll.** Read how Sanctuary uses this crate (`gh repo clone Ladvien/sanctuary /tmp/bN/sanctuary -- --depth 1`, then `rg -l bevy_speech_bubbles`, its `src/dialogue.rs` and its hint cards; removed afterwards) and bevy_emerge's dialogue family issue and its siblings (`gh issue view 106 --repo Ladvien/bevy_emerge`, `gh issue list -R Ladvien/bevy_emerge --label family`). Find a formula, a wrapper or a query either writes by hand around this crate (a reader-duration timer, a press count, an alias table, a toast that stands in for the box), and build its general form here, never named for either. Prove it with a test here.
+1. **What the crate's consumers hand-roll.** Read how Sanctuary uses this crate (`gh repo clone Ladvien/sanctuary /tmp/bN/sanctuary -- --depth 1`, then `rg -l bevy_speech_bubbles`, its `src/dialogue.rs` and its hint cards; removed afterwards) and bevy_grimoire's dialogue family issue and its siblings (`gh issue view 106 --repo bevy-coven/bevy_grimoire`, `gh issue list -R bevy-coven/bevy_grimoire --label family`). Find a formula, a wrapper or a query either writes by hand around this crate (a reader-duration timer, a press count, an alias table, a toast that stands in for the box), and build its general form here, never named for either. Prove it with a test here.
 2. **A feature a shipping game in this domain expects and this crate lacks**, found by research: home-still first (`distill_search`; for a paper the corpus lacks, `paper_search`, `paper_download`, `scribe_convert`, then `distill_index`), then shipped-game practice, then section 5 before any code.
 3. **Depth on the weakest existing feature**: measure it against its research note's validation targets and improve the worst gap.
 

@@ -6,7 +6,7 @@ Iteration 5, issue #12. The crate's authored-data types disagree about `#[serde(
 `#[serde(default)]`, so `Line(speaker: "scout", kind: Thought, emtion: Fear, ...)` parses, passes
 `validate_script` (which sees a `DialogueScript`, not the text) and draws a Neutral balloon; `knid:
 Thought` draws a speech balloon; `Bark { ttl: 5.0 }` and `BarkSettings { max_live: 2 }` drop the field
-without a word. bevy_emerge's editor (Ladvien/bevy_emerge#106) writes these as hot-reloaded RON, so the
+without a word. bevy_grimoire's editor (bevy-coven/bevy_grimoire#106) writes these as hot-reloaded RON, so the
 author who typed the typo is the one who sees nothing.
 
 ## Sources
