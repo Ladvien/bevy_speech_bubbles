@@ -44,7 +44,7 @@ This repository, [`Ladvien/bevy_speech_bubbles`](https://github.com/Ladvien/bevy
 - **Balloon size is the host's: `BalloonScale` + `BubblePx`.** `track_bubbles` sets the quad scale to `px * world_per_px` every frame and anchors at `anchor_y`; `build_bubble` returns the raster size (`px`) and `size` is only the default-scale starting value. Never bake a world size into anything `track_bubbles` does not recompute (choice stacking offsets are `BubbleOffsetPx`, in texels). `BalloonSkin::text_px` scales padding, tail, border and radius (`Metrics` in `balloon.rs`); pixel mode rounds them to whole texels and puts glyphs on whole texels.
 - **The dialog box is UI, not raster.** It uses `Text` with a transparent `TextSpan` for the unrevealed tail so the layout is that of the finished line from the first frame. The typewriter reads `DialogSkin.chars_per_second` every tick, so a settings menu changes it live. One box lives for the whole conversation and pops on each new node.
 - **Everything runs on `Time<Real>`** so balloons expire and the typewriter types while the host has paused virtual time on `ConversationLock`.
-- **A `Bark` is always a world balloon** whatever `Presenter` says; a speaker without an `entity` has no head to float over, so its bark is dropped and its balloon-mode lines are skipped.
+- **A `Bark` is always a world balloon** whatever `Presenter` says; a speaker without an `entity` has no head to float over, so its bark is dropped and its balloon-mode lines are skipped, quietly. A key that is not in `Speakers` at all is a different thing, a host mistake: `resolve_speaker` (`Head` / `Narrator` / `Unknown`) tells them apart and the `Unknown` drop logs a `warn!` (a bark's once per key, through `WarnedSpeakers`; `warn_once!` would dedup per call site and hide a second misspelt key).
 
 ## Rules
 
@@ -53,3 +53,4 @@ This repository, [`Ladvien/bevy_speech_bubbles`](https://github.com/Ladvien/bevy
 - **All run conditions are evaluated — there is no short-circuit.** A bare `Res<T>` in a `.run_if(..)` closure panics whenever that resource is absent.
 - **`Single<..>` silently skips its system on a non-unique match** — which is exactly why the camera is a type parameter rather than `With<Camera3d>`.
 - In tests, `ButtonInput::clear()` drops `just_pressed` only: also `release` a key before pressing it again.
+- To assert a `warn!` in a test, record events with a `bevy::log::tracing_subscriber::Layer` inside `bevy::log::tracing::subscriber::with_default`, and set the schedules that log (`PreUpdate`, `Update`) to `SingleThreadedExecutor` (`schedule.set_executor(..)`): a multithreaded executor logs on a pool thread the scoped subscriber never sees. `tests/walk.rs`'s `warned` module is the pattern.
