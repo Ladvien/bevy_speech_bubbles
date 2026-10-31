@@ -273,7 +273,10 @@ type Anchoring = (
 /// The walk follows `ChildOf` to the root. An ancestor without a `Transform` ends the composition (Bevy
 /// propagates no world position through it either); one without a `Visibility` counts as visible, as
 /// in Bevy's visibility propagation.
-fn owner_in_world(owner: Entity, chain: &Query<Anchoring, Without<Bubble>>) -> Option<(Vec3, bool)> {
+fn owner_in_world(
+    owner: Entity,
+    chain: &Query<Anchoring, Without<Bubble>>,
+) -> Option<(Vec3, bool)> {
     let (Some(tf), Some(vis), mut parent) = chain.get(owner).ok()? else {
         return None;
     };
@@ -347,10 +350,8 @@ pub fn track_bubbles<C: Component>(
         let anchor = owner_pos + Vec3::Y * scale.anchor_y;
         let half_h = tf.scale.y * 0.5;
         let toward = (cam_pos - anchor).normalize_or_zero();
-        tf.translation = anchor
-            + up * (half_h + offset.y)
-            + right * offset.x
-            + toward * CAMERA_NUDGE;
+        tf.translation =
+            anchor + up * (half_h + offset.y) + right * offset.x + toward * CAMERA_NUDGE;
         tf.rotation = cam_rot;
         // A root balloon that inherits is visible; written only on a change, so a steady balloon does
         // not re-run visibility propagation every frame.
@@ -661,7 +662,9 @@ fn rasterize(font: &FontArc, style: &BubbleStyle, text: &str) -> (Vec<u8>, u32, 
                 continue;
             }
             if d >= -m.border {
-                blend(&mut buf, img_w, img_h, px as i32, py as i32, pal.border, outer);
+                blend(
+                    &mut buf, img_w, img_h, px as i32, py as i32, pal.border, outer,
+                );
             } else {
                 blend(&mut buf, img_w, img_h, px as i32, py as i32, pal.fill, 1.0);
             }
@@ -676,8 +679,24 @@ fn rasterize(font: &FontArc, style: &BubbleStyle, text: &str) -> (Vec<u8>, u32, 
         if thought {
             // Trailing shrinking dots — the classic thought tail.
             draw_disc(&mut buf, img_w, img_h, cx, base_y + 7.0 * k, 8.0 * k, &pal);
-            draw_disc(&mut buf, img_w, img_h, cx - 4.0 * k, base_y + 18.0 * k, 5.0 * k, &pal);
-            draw_disc(&mut buf, img_w, img_h, cx - 8.0 * k, base_y + 26.0 * k, 3.0 * k, &pal);
+            draw_disc(
+                &mut buf,
+                img_w,
+                img_h,
+                cx - 4.0 * k,
+                base_y + 18.0 * k,
+                5.0 * k,
+                &pal,
+            );
+            draw_disc(
+                &mut buf,
+                img_w,
+                img_h,
+                cx - 8.0 * k,
+                base_y + 26.0 * k,
+                3.0 * k,
+                &pal,
+            );
         } else {
             // Pointed speech tail.
             let a = Vec2::new(cx - 14.0 * k, base_y - 2.0 * k);
@@ -765,7 +784,11 @@ fn draw_triangle(buf: &mut [u8], w: u32, h: u32, a: Vec2, b: Vec2, c: Vec2, pal:
             let d1 = w1 / (c - a).length();
             let d2 = w2 / (a - b).length();
             let edge_dist = d0.min(d1).min(d2);
-            let col = if edge_dist <= pal.border_w { pal.border } else { pal.fill };
+            let col = if edge_dist <= pal.border_w {
+                pal.border
+            } else {
+                pal.fill
+            };
             blend(buf, w, h, x, y, col, 1.0);
         }
     }
@@ -780,7 +803,6 @@ fn edge(a: Vec2, b: Vec2, p: Vec2) -> f32 {
 mod tests {
     use super::*;
     use bevy::image::ImageSamplerDescriptor;
-
 
     /// **The clipping bug, pinned as geometry.**
     ///
@@ -832,7 +854,10 @@ mod tests {
         assert_eq!(m.pad, PAD, "crt metrics are the reference constants");
         assert_eq!(horizontal_pad(&m, 300.0, 56.0, true), PAD);
         assert_eq!(horizontal_pad(&m, 300.0, 56.0, false), PAD);
-        assert!(horizontal_pad(&m, 300.0, 168.0, true) > PAD, "three lines must widen the pill");
+        assert!(
+            horizontal_pad(&m, 300.0, 168.0, true) > PAD,
+            "three lines must widen the pill"
+        );
     }
 
     #[test]
@@ -860,9 +885,10 @@ mod tests {
     fn from_font_bytes_accepts_a_font_and_refuses_garbage() {
         let bytes = include_bytes!("../tests/data/FiraMono-subset.ttf").to_vec();
         assert!(BubbleAssets::from_font_bytes(Handle::default(), bytes).is_ok());
-        let err = BubbleAssets::from_font_bytes(Handle::default(), b"definitely not a font".to_vec())
-            .err()
-            .expect("garbage must be refused");
+        let err =
+            BubbleAssets::from_font_bytes(Handle::default(), b"definitely not a font".to_vec())
+                .err()
+                .expect("garbage must be refused");
         assert!(err.contains("font"), "{err}");
     }
 
@@ -918,9 +944,16 @@ mod tests {
     #[test]
     fn the_anti_aliased_skin_does_blend() {
         let font = test_font();
-        let (rgba, ..) = rasterize(&font, &styled(BubbleKind::Speech, true, BalloonSkin::crt()), LINE);
+        let (rgba, ..) = rasterize(
+            &font,
+            &styled(BubbleKind::Speech, true, BalloonSkin::crt()),
+            LINE,
+        );
         assert!(
-            rgba.as_chunks::<4>().0.iter().any(|px| px[3] != 0 && px[3] != 255),
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .any(|px| px[3] != 0 && px[3] != 255),
             "crt skin produced no partially transparent texel; the pixel test proves nothing"
         );
     }
@@ -936,7 +969,10 @@ mod tests {
         let mut images = Assets::<Image>::default();
         let mut materials = Assets::<StandardMaterial>::default();
 
-        for (skin, nearest) in [(BalloonSkin::ink_on_paper(), true), (BalloonSkin::crt(), false)] {
+        for (skin, nearest) in [
+            (BalloonSkin::ink_on_paper(), true),
+            (BalloonSkin::crt(), false),
+        ] {
             let rendered = build_bubble(
                 &assets,
                 &mut images,
@@ -944,8 +980,13 @@ mod tests {
                 &styled(BubbleKind::Speech, true, skin),
                 "Sampler.",
             );
-            let material = materials.get(&rendered.material).expect("the material exists");
-            let handle = material.base_color_texture.as_ref().expect("a face texture");
+            let material = materials
+                .get(&rendered.material)
+                .expect("the material exists");
+            let handle = material
+                .base_color_texture
+                .as_ref()
+                .expect("a face texture");
             let image = images.get(handle).expect("the image exists");
             assert_eq!(
                 matches!(&image.sampler, ImageSampler::Descriptor(d) if *d == ImageSamplerDescriptor::nearest()),
@@ -980,13 +1021,32 @@ mod tests {
         let font = test_font();
         let skin = BalloonSkin::ink_on_paper();
         assert_eq!(skin.text_px, 16.0);
-        let (rgba, w, h) = rasterize(&font, &styled(BubbleKind::Speech, false, skin), "Hold the gate at dwn");
-        assert!((150..=240).contains(&w), "width {w} texels is not about 20 chars at 16 px");
-        assert!((26..=50).contains(&h), "height {h} texels is not one pixel-font line");
-        assert!(rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 0 || px[3] == 255));
+        let (rgba, w, h) = rasterize(
+            &font,
+            &styled(BubbleKind::Speech, false, skin),
+            "Hold the gate at dwn",
+        );
+        assert!(
+            (150..=240).contains(&w),
+            "width {w} texels is not about 20 chars at 16 px"
+        );
+        assert!(
+            (26..=50).contains(&h),
+            "height {h} texels is not one pixel-font line"
+        );
+        assert!(
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .all(|px| px[3] == 0 || px[3] == 255)
+        );
 
         // The hi-res skin is more than twice that.
-        let (_, hw, hh) = rasterize(&font, &styled(BubbleKind::Speech, false, BalloonSkin::crt()), "Hold the gate at dwn");
+        let (_, hw, hh) = rasterize(
+            &font,
+            &styled(BubbleKind::Speech, false, BalloonSkin::crt()),
+            "Hold the gate at dwn",
+        );
         assert!(hw > 2 * w && hh > 2 * h, "crt {hw}x{hh} vs pixel {w}x{h}");
 
         // The border is one texel thick on the top edge of the middle column.
@@ -1000,8 +1060,16 @@ mod tests {
             })
             .collect();
         let first = col.iter().position(|p| p[3] == 255).expect("a solid texel");
-        assert_eq!(col[first][..3], skin.border[..3], "the outermost texel is the border");
-        assert_eq!(col[first + 1][..3], skin.fill[..3], "and only one texel thick");
+        assert_eq!(
+            col[first][..3],
+            skin.border[..3],
+            "the outermost texel is the border"
+        );
+        assert_eq!(
+            col[first + 1][..3],
+            skin.fill[..3],
+            "and only one texel thick"
+        );
     }
 
     /// The tail and the thought dots scale with the glyphs too: a pixel balloon with a tail is the
@@ -1014,8 +1082,17 @@ mod tests {
             let (_, w0, h0) = rasterize(&font, &styled(kind, false, skin), "Hi there");
             let (rgba, w1, h1) = rasterize(&font, &styled(kind, true, skin), "Hi there");
             assert_eq!(w0, w1);
-            assert!((1..=14).contains(&(h1 - h0)), "{kind:?}: the tail adds {} texels", h1 - h0);
-            assert!(rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 0 || px[3] == 255));
+            assert!(
+                (1..=14).contains(&(h1 - h0)),
+                "{kind:?}: the tail adds {} texels",
+                h1 - h0
+            );
+            assert!(
+                rgba.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|px| px[3] == 0 || px[3] == 255)
+            );
         }
     }
 
@@ -1035,8 +1112,10 @@ mod tests {
                 anchor_y: 2.0,
             });
         // Far down +Z, so the nudge toward the camera is almost horizontal.
-        app.world_mut()
-            .spawn((Cam, GlobalTransform::from(Transform::from_xyz(5.0, 1.0, 1000.0))));
+        app.world_mut().spawn((
+            Cam,
+            GlobalTransform::from(Transform::from_xyz(5.0, 1.0, 1000.0)),
+        ));
         let owner = app
             .world_mut()
             .spawn((Transform::from_xyz(5.0, 1.0, 0.0), Visibility::default()))
@@ -1057,9 +1136,17 @@ mod tests {
 
         app.update();
         let tf = *app.world().get::<Transform>(balloon).expect("balloon");
-        assert!((tf.scale.x - 1.0).abs() < 1e-5 && (tf.scale.y - 0.4).abs() < 1e-5, "{:?}", tf.scale);
+        assert!(
+            (tf.scale.x - 1.0).abs() < 1e-5 && (tf.scale.y - 0.4).abs() < 1e-5,
+            "{:?}",
+            tf.scale
+        );
         // anchor 1 + 2, then half height 0.2 and the 10 px offset (0.1) up, the camera looks down -Z.
-        assert!((tf.translation.y - (3.0 + 0.2 + 0.1)).abs() < 0.01, "{:?}", tf.translation);
+        assert!(
+            (tf.translation.y - (3.0 + 0.2 + 0.1)).abs() < 0.01,
+            "{:?}",
+            tf.translation
+        );
 
         *app.world_mut().resource_mut::<BalloonScale>() = BalloonScale {
             world_per_px: 0.02,
@@ -1067,8 +1154,16 @@ mod tests {
         };
         app.update();
         let tf = *app.world().get::<Transform>(balloon).expect("balloon");
-        assert!((tf.scale.x - 2.0).abs() < 1e-5 && (tf.scale.y - 0.8).abs() < 1e-5, "{:?}", tf.scale);
-        assert!((tf.translation.y - (4.0 + 0.4 + 0.2)).abs() < 0.01, "{:?}", tf.translation);
+        assert!(
+            (tf.scale.x - 2.0).abs() < 1e-5 && (tf.scale.y - 0.8).abs() < 1e-5,
+            "{:?}",
+            tf.scale
+        );
+        assert!(
+            (tf.translation.y - (4.0 + 0.4 + 0.2)).abs() < 0.01,
+            "{:?}",
+            tf.translation
+        );
     }
 
     // ----- owners in a hierarchy (#10) -----
@@ -1095,8 +1190,10 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(TransformPlugin)
             .add_systems(Update, track_bubbles::<Cam>);
-        app.world_mut()
-            .spawn((Cam, GlobalTransform::from(Transform::from_xyz(10.0, 1.0, 1000.0))));
+        app.world_mut().spawn((
+            Cam,
+            GlobalTransform::from(Transform::from_xyz(10.0, 1.0, 1000.0)),
+        ));
         let parent = app
             .world_mut()
             .spawn((Transform::from_xyz(10.0, 0.0, 0.0), Visibility::default()))
@@ -1108,7 +1205,11 @@ mod tests {
         let balloon = balloon_on(&mut app, owner);
         app.update();
         let tf = app.world().get::<Transform>(balloon).expect("balloon");
-        assert!((tf.translation.x - 10.0).abs() < 0.05, "{:?}", tf.translation);
+        assert!(
+            (tf.translation.x - 10.0).abs() < 0.05,
+            "{:?}",
+            tf.translation
+        );
     }
 
     /// **The anchor is the owner's world position in the frame it is tracked**: through a translated,
@@ -1142,17 +1243,29 @@ mod tests {
             .id();
         let owner = app
             .world_mut()
-            .spawn((Transform::from_xyz(0.0, 1.0, 0.5), Visibility::default(), ChildOf(parent)))
+            .spawn((
+                Transform::from_xyz(0.0, 1.0, 0.5),
+                Visibility::default(),
+                ChildOf(parent),
+            ))
             .id();
         let balloon = balloon_on(&mut app, owner);
         let scale = BalloonScale::default();
 
         let check = |app: &App, when: &str| {
-            let world_pos = app.world().get::<GlobalTransform>(owner).expect("owner").translation();
+            let world_pos = app
+                .world()
+                .get::<GlobalTransform>(owner)
+                .expect("owner")
+                .translation();
             let anchor = world_pos + Vec3::Y * scale.anchor_y;
             let half_h = 40.0 * scale.world_per_px * 0.5;
             let expected = anchor + Vec3::Y * half_h + (cam - anchor).normalize() * CAMERA_NUDGE;
-            let got = app.world().get::<Transform>(balloon).expect("balloon").translation;
+            let got = app
+                .world()
+                .get::<Transform>(balloon)
+                .expect("balloon")
+                .translation;
             assert!(
                 got.distance(expected) < 1e-4,
                 "{when}: balloon at {got:?}, owner's world position {world_pos:?} wants {expected:?}"
@@ -1176,10 +1289,15 @@ mod tests {
         use bevy::camera::visibility::VisibilityPlugin;
 
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin, VisibilityPlugin))
-            .init_asset::<Mesh>()
-            .init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>()
-            .add_systems(Update, track_bubbles::<Cam>);
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            TransformPlugin,
+            VisibilityPlugin,
+        ))
+        .init_asset::<Mesh>()
+        .init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>()
+        .add_systems(Update, track_bubbles::<Cam>);
         app.world_mut().spawn((Cam, GlobalTransform::default()));
         let parent = app
             .world_mut()
@@ -1190,22 +1308,42 @@ mod tests {
             .spawn((Transform::default(), Visibility::default(), ChildOf(parent)))
             .id();
         let balloon = balloon_on(&mut app, owner);
-        let shown = |app: &App| app.world().get::<InheritedVisibility>(balloon).expect("balloon").get();
+        let shown = |app: &App| {
+            app.world()
+                .get::<InheritedVisibility>(balloon)
+                .expect("balloon")
+                .get()
+        };
 
         app.update();
         assert!(shown(&app), "a visible owner's balloon is visible");
 
-        *app.world_mut().get_mut::<Visibility>(parent).expect("parent") = Visibility::Hidden;
+        *app.world_mut()
+            .get_mut::<Visibility>(parent)
+            .expect("parent") = Visibility::Hidden;
         app.update();
-        assert!(!app.world().get::<InheritedVisibility>(owner).expect("owner").get());
-        assert!(!shown(&app), "the owner is hidden through its parent, so is its balloon");
+        assert!(
+            !app.world()
+                .get::<InheritedVisibility>(owner)
+                .expect("owner")
+                .get()
+        );
+        assert!(
+            !shown(&app),
+            "the owner is hidden through its parent, so is its balloon"
+        );
 
         *app.world_mut().get_mut::<Visibility>(owner).expect("owner") = Visibility::Visible;
         app.update();
-        assert!(shown(&app), "an owner set Visible shows under a hidden parent, and so does its balloon");
+        assert!(
+            shown(&app),
+            "an owner set Visible shows under a hidden parent, and so does its balloon"
+        );
 
         *app.world_mut().get_mut::<Visibility>(owner).expect("owner") = Visibility::Inherited;
-        *app.world_mut().get_mut::<Visibility>(parent).expect("parent") = Visibility::Inherited;
+        *app.world_mut()
+            .get_mut::<Visibility>(parent)
+            .expect("parent") = Visibility::Inherited;
         app.update();
         assert!(shown(&app), "the parent shown again, the balloon is back");
     }

@@ -35,8 +35,8 @@ use bevy::time::TimeUpdateStrategy;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use bevy_speech_bubbles::{
-    build_bubble, dwell_secs, expire_bubbles, track_bubbles, BalloonSkin, Bubble, BubbleAssets, BubbleKind, BubblePx,
-    BubbleStyle, BubbleTtl, Emotion,
+    BalloonSkin, Bubble, BubbleAssets, BubbleKind, BubblePx, BubbleStyle, BubbleTtl, Emotion,
+    build_bubble, dwell_secs, expire_bubbles, track_bubbles,
 };
 
 /// The example's own camera marker. This is the whole point — the crate never names it.
@@ -70,10 +70,16 @@ const THOUGHT: &str = "...that was not a rat.";
 
 fn main() {
     let Some(path) = std::env::args().nth(1) else {
-        eprintln!("usage: cargo run -p bevy_speech_bubbles --example two_balloons -- <path-to-font.ttf>");
+        eprintln!(
+            "usage: cargo run -p bevy_speech_bubbles --example two_balloons -- <path-to-font.ttf>"
+        );
         eprintln!();
-        eprintln!("A font path is required rather than defaulted. This crate rasterizes glyphs itself,");
-        eprintln!("and guessing where your assets live is exactly the assumption a library must not make.");
+        eprintln!(
+            "A font path is required rather than defaulted. This crate rasterizes glyphs itself,"
+        );
+        eprintln!(
+            "and guessing where your assets live is exactly the assumption a library must not make."
+        );
         eprintln!();
         eprintln!("  macOS:  /System/Library/Fonts/Supplemental/Arial.ttf");
         eprintln!("  Linux:  /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
@@ -127,7 +133,9 @@ fn main() {
                     .disable::<WinitPlugin>(),
                 ScheduleRunnerPlugin::run_loop(Duration::ZERO),
             ))
-            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)))
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+                1.0 / 60.0,
+            )))
             .insert_resource(shot)
             .add_systems(Last, capture);
         }
@@ -148,7 +156,12 @@ fn main() {
 }
 
 /// Save the camera's image on frame `Shot::frames`, then exit.
-fn capture(mut commands: Commands, shot: Res<Shot>, image: Option<Res<ShotImage>>, mut frame: Local<u32>) {
+fn capture(
+    mut commands: Commands,
+    shot: Res<Shot>,
+    image: Option<Res<ShotImage>>,
+    mut frame: Local<u32>,
+) {
     *frame += 1;
     let Some(image) = image else {
         return;
@@ -157,9 +170,11 @@ fn capture(mut commands: Commands, shot: Res<Shot>, image: Option<Res<ShotImage>
         commands
             .spawn(Screenshot::image(image.0.clone()))
             .observe(save_to_disk(shot.path.clone()))
-            .observe(|_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-                exit.write(AppExit::Success);
-            });
+            .observe(
+                |_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+                    exit.write(AppExit::Success);
+                },
+            );
     }
 }
 
@@ -173,7 +188,10 @@ fn setup(
     shot: Option<Res<Shot>>,
 ) {
     // The unit quad every balloon is drawn on, scaled per bubble to the size the raster came out.
-    let assets = BubbleAssets { quad: meshes.add(Rectangle::new(1.0, 1.0)), font: font.0.clone() };
+    let assets = BubbleAssets {
+        quad: meshes.add(Rectangle::new(1.0, 1.0)),
+        font: font.0.clone(),
+    };
 
     let cube = meshes.add(Cuboid::new(0.8, 1.6, 0.8));
 
@@ -181,7 +199,10 @@ fn setup(
     let talker = commands
         .spawn((
             Mesh3d(cube.clone()),
-            MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.30, 0.55, 0.85), ..default() })),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.30, 0.55, 0.85),
+                ..default()
+            })),
             Transform::from_xyz(-1.6, 0.8, 0.0),
         ))
         .id();
@@ -191,14 +212,20 @@ fn setup(
         .spawn((
             Cart,
             Mesh3d(meshes.add(Cuboid::new(1.4, 0.2, 1.4))),
-            MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.35, 0.30, 0.25), ..default() })),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.35, 0.30, 0.25),
+                ..default()
+            })),
             Transform::from_xyz(1.6, 0.1, 0.0),
         ))
         .id();
     let thinker = commands
         .spawn((
             Mesh3d(cube.clone()),
-            MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.75, 0.45, 0.30), ..default() })),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.75, 0.45, 0.30),
+                ..default()
+            })),
             Transform::from_xyz(0.0, 0.9, 0.0),
             ChildOf(cart),
         ))
@@ -210,7 +237,12 @@ fn setup(
     ];
     for (owner, text, kind, emotion) in speakers {
         // Built once per line, not per frame — the raster is the expensive part.
-        let style = BubbleStyle { kind, emotion, tail: true, skin: BalloonSkin::crt() };
+        let style = BubbleStyle {
+            kind,
+            emotion,
+            tail: true,
+            skin: BalloonSkin::crt(),
+        };
         let face = build_bubble(&assets, &mut images, &mut materials, &style, text);
 
         commands.spawn((
@@ -218,11 +250,16 @@ fn setup(
             MeshMaterial3d(face.material),
             // `track_bubbles` reads `scale.y` to work out how far above the head to sit.
             Transform::from_scale(Vec3::new(face.size.x, face.size.y, 1.0)),
-            Bubble { owner, offset: Vec2::ZERO },
+            Bubble {
+                owner,
+                offset: Vec2::ZERO,
+            },
             // The raster size: `track_bubbles` sizes the quad from it and the live `BalloonScale`.
             BubblePx(face.px),
             // Ambient balloons time out on their own. Dwell scales with how much there is to read.
-            BubbleTtl { expires_at: time.elapsed_secs() + dwell_secs(text) * 4.0 },
+            BubbleTtl {
+                expires_at: time.elapsed_secs() + dwell_secs(text) * 4.0,
+            },
         ));
     }
 
@@ -236,7 +273,11 @@ fn setup(
     ));
 
     commands.spawn((
-        DirectionalLight { illuminance: 9_000.0, shadow_maps_enabled: true, ..default() },
+        DirectionalLight {
+            illuminance: 9_000.0,
+            shadow_maps_enabled: true,
+            ..default()
+        },
         Transform::from_xyz(4.0, 9.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
@@ -248,10 +289,17 @@ fn setup(
         ))
         .id();
     if shot.is_some() {
-        let mut image = Image::new_target_texture(SHOT_SIZE.x, SHOT_SIZE.y, TextureFormat::Rgba8UnormSrgb, None);
+        let mut image = Image::new_target_texture(
+            SHOT_SIZE.x,
+            SHOT_SIZE.y,
+            TextureFormat::Rgba8UnormSrgb,
+            None,
+        );
         image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
         let image = images.add(image);
-        commands.entity(camera).insert(RenderTarget::Image(image.clone().into()));
+        commands
+            .entity(camera)
+            .insert(RenderTarget::Image(image.clone().into()));
         commands.insert_resource(ShotImage(image));
     }
 
