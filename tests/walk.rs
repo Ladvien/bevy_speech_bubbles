@@ -343,7 +343,9 @@ mod warned {
         self, Event, Level, Subscriber,
         field::{Field, Visit},
     };
-    use bevy::log::tracing_subscriber::{Layer, layer::Context, layer::SubscriberExt, registry::Registry};
+    use bevy::log::tracing_subscriber::{
+        Layer, layer::Context, layer::SubscriberExt, registry::Registry,
+    };
     use bevy::prelude::*;
 
     #[derive(Clone, Default)]
@@ -398,7 +400,10 @@ fn bark_app() -> App {
         quad: Handle::default(),
         font,
     });
-    let villager = app.world_mut().spawn((Transform::default(), Visibility::default())).id();
+    let villager = app
+        .world_mut()
+        .spawn((Transform::default(), Visibility::default()))
+        .id();
     app.world_mut().resource_mut::<Speakers>().0.insert(
         "villager".into(),
         Speaker {
@@ -422,7 +427,10 @@ fn bark(speaker: &str) -> Bark {
 
 fn balloons(app: &mut App) -> usize {
     let world = app.world_mut();
-    world.query::<&bevy_speech_bubbles::Bubble>().iter(world).count()
+    world
+        .query::<&bevy_speech_bubbles::Bubble>()
+        .iter(world)
+        .count()
 }
 
 /// A bark for a key that is not in `Speakers` is a host mistake (a misspelt key in a bark file): it is
@@ -435,10 +443,24 @@ fn a_bark_for_an_unknown_speaker_warns_naming_the_key() {
         app.update();
         app.update();
     });
-    assert_eq!(log.len(), 1, "one warning for the one dropped bark: {log:?}");
-    assert!(log[0].contains("nobody"), "the warning names the key: {log:?}");
-    assert!(log[0].contains("Stuck!"), "the warning names the bark: {log:?}");
-    assert_eq!(balloons(&mut app), 0, "nothing is shown for an unknown speaker");
+    assert_eq!(
+        log.len(),
+        1,
+        "one warning for the one dropped bark: {log:?}"
+    );
+    assert!(
+        log[0].contains("nobody"),
+        "the warning names the key: {log:?}"
+    );
+    assert!(
+        log[0].contains("Stuck!"),
+        "the warning names the bark: {log:?}"
+    );
+    assert_eq!(
+        balloons(&mut app),
+        0,
+        "nothing is shown for an unknown speaker"
+    );
 }
 
 /// A registered speaker with no entity is a narrator: it has no head to float over, and the drop is
@@ -451,7 +473,10 @@ fn a_bark_for_a_registered_narrator_stays_quiet() {
         app.update();
         app.update();
     });
-    assert!(log.is_empty(), "a narrator's bark is dropped without a warning: {log:?}");
+    assert!(
+        log.is_empty(),
+        "a narrator's bark is dropped without a warning: {log:?}"
+    );
     assert_eq!(balloons(&mut app), 0);
 }
 
@@ -484,7 +509,10 @@ fn a_bark_speaker_registered_after_its_warning_gets_its_balloon() {
         app.update();
     });
     assert_eq!(log.len(), 1, "{log:?}");
-    let head = app.world_mut().spawn((Transform::default(), Visibility::default())).id();
+    let head = app
+        .world_mut()
+        .spawn((Transform::default(), Visibility::default()))
+        .id();
     app.world_mut().resource_mut::<Speakers>().0.insert(
         "late".into(),
         Speaker {
