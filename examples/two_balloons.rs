@@ -19,16 +19,21 @@
 //!
 //! Run: `cargo run -p bevy_speech_bubbles --example two_balloons -- <path-to-font.ttf>`
 //!
-//! `BUBBLES_SHOT=<file.png>` saves the window after `BUBBLES_FRAMES` frames (default 90) and exits.
-//! The clock then steps a fixed 1/60 s per frame, so a frame number is the same picture on every
-//! machine.
+//! `BUBBLES_SHOT=<file.png>` renders without a window into a 1800x1240 image, saves it after
+//! `BUBBLES_FRAMES` frames (default 90) and exits. The clock then steps a fixed 1/60 s per frame, so a
+//! frame number is the same picture on every machine, and a locked or headless screen still captures.
 
 use std::time::Duration;
 
 use ab_glyph::FontArc;
+use bevy::app::ScheduleRunnerPlugin;
+use bevy::camera::RenderTarget;
 use bevy::prelude::*;
+use bevy::render::render_resource::{TextureFormat, TextureUsages};
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::time::TimeUpdateStrategy;
+use bevy::window::ExitCondition;
+use bevy::winit::WinitPlugin;
 use bevy_speech_bubbles::{
     build_bubble, dwell_secs, expire_bubbles, track_bubbles, BalloonSkin, Bubble, BubbleAssets, BubbleKind, BubblePx,
     BubbleStyle, BubbleTtl, Emotion,
@@ -45,6 +50,20 @@ struct LoadedFont(FontArc);
 /// The cart the thinker rides. It slides to and fro, carrying its child cube and that cube's balloon.
 #[derive(Component)]
 struct Cart;
+
+/// `BUBBLES_SHOT`: where the still goes and after how many frames.
+#[derive(Resource)]
+struct Shot {
+    path: String,
+    frames: u32,
+}
+
+/// The image the camera renders into while capturing.
+#[derive(Resource)]
+struct ShotImage(Handle<Image>);
+
+/// The still's size in pixels: the window's 900x620 at a 2x scale factor.
+const SHOT_SIZE: UVec2 = UVec2::new(1800, 1240);
 
 const SPOKEN: &str = "Contact, west corridor.";
 const THOUGHT: &str = "...that was not a rat.";
@@ -76,53 +95,72 @@ fn main() {
         }
     };
 
+    let shot = std::env::var("BUBBLES_SHOT").ok().map(|path| Shot {
+        path,
+        frames: std::env::var("BUBBLES_FRAMES")
+            .ok()
+            .and_then(|f| f.parse().ok())
+            .unwrap_or(90),
+    });
+
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-            title: "bevy_speech_bubbles — balloons live in the world".into(),
-            resolution: (900u32, 620u32).into(),
-            ..default()
-        }),
-        ..default()
-    }))
-    .insert_resource(LoadedFont(font))
-    .add_systems(Startup, setup)
-    .add_systems(
-        Update,
-        (
-            // Your marker, not `Camera3d`.
-            track_bubbles::<ExampleCamera>,
-            expire_bubbles,
-            orbit_camera,
-            slide_cart,
-        ),
-    );
-    capture_knob(&mut app);
-    app.run();
+    match shot {
+        None => {
+            app.add_plugins(DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "bevy_speech_bubbles — balloons live in the world".into(),
+                    resolution: (900u32, 620u32).into(),
+                    ..default()
+                }),
+                ..default()
+            }));
+        }
+        Some(shot) => {
+            // No window: the camera renders into an image, so a locked or headless screen captures.
+            app.add_plugins((
+                DefaultPlugins
+                    .set(WindowPlugin {
+                        primary_window: None,
+                        exit_condition: ExitCondition::DontExit,
+                        ..default()
+                    })
+                    .disable::<WinitPlugin>(),
+                ScheduleRunnerPlugin::run_loop(Duration::ZERO),
+            ))
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)))
+            .insert_resource(shot)
+            .add_systems(Last, capture);
+        }
+    }
+    app.insert_resource(LoadedFont(font))
+        .add_systems(Startup, setup)
+        .add_systems(
+            Update,
+            (
+                // Your marker, not `Camera3d`.
+                track_bubbles::<ExampleCamera>,
+                expire_bubbles,
+                orbit_camera,
+                slide_cart,
+            ),
+        )
+        .run();
 }
 
-/// `BUBBLES_SHOT=<file.png>`: on a fixed 1/60 s clock, save the window after `BUBBLES_FRAMES` frames
-/// (default 90), then exit.
-fn capture_knob(app: &mut App) {
-    let Ok(path) = std::env::var("BUBBLES_SHOT") else {
+/// Save the camera's image on frame `Shot::frames`, then exit.
+fn capture(mut commands: Commands, shot: Res<Shot>, image: Option<Res<ShotImage>>, mut frame: Local<u32>) {
+    *frame += 1;
+    let Some(image) = image else {
         return;
     };
-    let frames: u32 = std::env::var("BUBBLES_FRAMES")
-        .ok()
-        .and_then(|f| f.parse().ok())
-        .unwrap_or(90);
-    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 60.0)))
-        .add_systems(Last, move |mut commands: Commands, mut frame: Local<u32>| {
-            *frame += 1;
-            if *frame == frames {
-                commands
-                    .spawn(Screenshot::primary_window())
-                    .observe(save_to_disk(path.clone()))
-                    .observe(|_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-                        exit.write(AppExit::Success);
-                    });
-            }
-        });
+    if *frame == shot.frames {
+        commands
+            .spawn(Screenshot::image(image.0.clone()))
+            .observe(save_to_disk(shot.path.clone()))
+            .observe(|_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+                exit.write(AppExit::Success);
+            });
+    }
 }
 
 fn setup(
@@ -132,6 +170,7 @@ fn setup(
     mut images: ResMut<Assets<Image>>,
     font: Res<LoadedFont>,
     time: Res<Time<Real>>,
+    shot: Option<Res<Shot>>,
 ) {
     // The unit quad every balloon is drawn on, scaled per bubble to the size the raster came out.
     let assets = BubbleAssets { quad: meshes.add(Rectangle::new(1.0, 1.0)), font: font.0.clone() };
@@ -201,11 +240,20 @@ fn setup(
         Transform::from_xyz(4.0, 9.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(0.0, 3.0, 7.0).looking_at(Vec3::new(0.0, 1.6, 0.0), Vec3::Y),
-        ExampleCamera,
-    ));
+    let camera = commands
+        .spawn((
+            Camera3d::default(),
+            Transform::from_xyz(0.0, 3.0, 7.0).looking_at(Vec3::new(0.0, 1.6, 0.0), Vec3::Y),
+            ExampleCamera,
+        ))
+        .id();
+    if shot.is_some() {
+        let mut image = Image::new_target_texture(SHOT_SIZE.x, SHOT_SIZE.y, TextureFormat::Rgba8UnormSrgb, None);
+        image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
+        let image = images.add(image);
+        commands.entity(camera).insert(RenderTarget::Image(image.clone().into()));
+        commands.insert_resource(ShotImage(image));
+    }
 
     commands.insert_resource(assets);
     info!("balloons expire on their own — watch them go, and note they never faced away from you");
