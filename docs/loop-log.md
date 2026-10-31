@@ -135,7 +135,25 @@ Numbering: iterations 1 and 2 were passes killed before they logged; their work 
   host); the next run, another build of the same example, captured in 26 s. Use a long timeout, never
   `timeout 100`.
 - **Commits.** Fix `edf9f4f` ("A speaker that is a child entity gets its balloon over its world
-  position", Fixes #10) on `loop/iter-3`; release recorded by the follow-up commit below.
+  position", Fixes #10) on `loop/iter-3`, merged as `8046adc`; issue #10 closed by it and commented with
+  the evidence. Gate re-run green on the merged tree (only `examples/two_balloons.rs`, +3 lines,
+  differed from the gated tree).
+- **Release.** `cargo semver-checks check-release`: 202 checks pass, "no semver update required", so
+  PATCH: `release: v0.2.2` (`cf8a4a0`), `cargo publish --dry-run` then `cargo publish`, tag `v0.2.2`
+  pushed. https://crates.io/crates/bevy_speech_bubbles/0.2.2 (`cargo info` resolves it). Last tag
+  `v0.2.1` was 148 h old. It carries `Bark`/`BarkSettings` serde (#9), the bench, the `two_balloons`
+  cart and the #10 fix.
+- **Cleanup.** Removed `~/b3_base` (a baseline worktree whose build was interrupted at 521 MB; the
+  before/after bench and still binaries were built in the clone's own target dir by swapping
+  `src/balloon.rs` and `src/conversation.rs` to `2ba57c8` and back) and `/tmp/b3` (380 MB: bench output,
+  stills, probe, gate logs, binaries). `df -h` read 29 GiB free before and after (it was 44 GiB at the
+  start: the clone's `target/` grew with the no-dev-dependency, release and `semver-checks` builds and
+  is kept). **Leftover from an earlier pass, not removed:** `~/b2_base` (1.6 MB, detached at `fadce0c`,
+  which is on `loop/iter-2` only; NOT clean: modified `examples/two_balloons.rs` and `src/balloon.rs`,
+  untracked `tests/zz_probe.rs`; untouched for over two hours; no `b2_base-target`). A person decides.
+- **Host load note for the next pass.** The host ran at load average 12 on 10 cores: a release build
+  took 133 minutes, `semver-checks` 39. Start `cargo build --release` early, in the background, with no
+  timeout.
 - **Pending index.** `10.48550_arxiv.2306.17469` and `10.3390_jimaging4070087` await conversion (scribe
   queue), carried over from `balloon-anchoring.md`.
 
