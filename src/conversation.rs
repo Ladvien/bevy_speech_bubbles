@@ -16,7 +16,7 @@
 //! # Two ways to show a line
 //!
 //! [`Presenter::Balloons`] puts every line over its speaker's head and auto-advances after
-//! [`dwell_secs`](crate::dwell_secs); [`Presenter::DialogBox`] shows the screen box of
+//! [`dwell_secs`]; [`Presenter::DialogBox`] shows the screen box of
 //! [`crate::dialog_box`] and waits for the player. [`Bark`]s are one-off ambient lines and are always
 //! world balloons, whatever the presenter. A modal conversation holds [`ConversationLock`]; hosts that
 //! must yield input or pause the simulation read it.
@@ -133,7 +133,9 @@ pub fn validate_script(s: &DialogueScript) -> Result<(), String> {
                     if let Some(n) = next
                         && !conv.nodes.contains_key(n)
                     {
-                        return Err(format!("dialogue '{cid}' node '{nid}': next '{n}' not found"));
+                        return Err(format!(
+                            "dialogue '{cid}' node '{nid}': next '{n}' not found"
+                        ));
                     }
                 }
                 Node::Choice {
@@ -141,7 +143,9 @@ pub fn validate_script(s: &DialogueScript) -> Result<(), String> {
                 } => {
                     check_speaker(speaker, cid, nid)?;
                     if options.is_empty() {
-                        return Err(format!("dialogue '{cid}' node '{nid}': choice has no options"));
+                        return Err(format!(
+                            "dialogue '{cid}' node '{nid}': choice has no options"
+                        ));
                     }
                     for o in options {
                         if !conv.nodes.contains_key(&o.next) {
@@ -172,7 +176,9 @@ fn check_speaker(s: &str, cid: &str, nid: &str) -> Result<(), String> {
 /// Who a script's speaker string stands for, as the host knows it.
 #[derive(Debug, Clone, Default)]
 pub struct Speaker {
-    /// The entity a world balloon anchors to; `None` is a narrator (no balloon).
+    /// The entity a world balloon anchors to; `None` is a narrator (no balloon). Any entity with a
+    /// `Transform` and a `Visibility`, a root or a child: the balloon floats over its world position
+    /// and hides when it is hidden, through its parent too.
     pub entity: Option<Entity>,
     /// Shown on the dialog box's name tag; empty hides the tag.
     pub name: String,
@@ -284,7 +290,10 @@ pub struct BarkQueue {
 impl BarkQueue {
     /// File a bark, evicting the oldest if the backlog is full.
     pub(crate) fn push(&mut self, bark: Bark, now: f32, settings: &BarkSettings) {
-        self.pending.push_back(PendingBark { bark, queued_at: now });
+        self.pending.push_back(PendingBark {
+            bark,
+            queued_at: now,
+        });
         while self.pending.len() > settings.queue_cap {
             self.pending.pop_front();
         }
@@ -1010,7 +1019,10 @@ mod tests {
             .init_resource::<Presenter>()
             .insert_resource(ConversationLock)
             // Same order as the plugin: a digit pressed this frame must resolve this frame.
-            .add_systems(Update, (choice_hotkeys, resolve_choice, advance_line).chain());
+            .add_systems(
+                Update,
+                (choice_hotkeys, resolve_choice, advance_line).chain(),
+            );
         app
     }
 
@@ -1084,7 +1096,9 @@ mod tests {
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(key);
         app.update();
-        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .clear();
     }
 
     /// A choice never auto-advances, so an *unanswerable* choice is an unrecoverable run. This walks
@@ -1096,7 +1110,11 @@ mod tests {
         park(&mut app, "ask");
 
         tap(&mut app, KeyCode::Digit2);
-        assert_eq!(node_of(&app).as_deref(), Some("moved"), "'2' takes the second option");
+        assert_eq!(
+            node_of(&app).as_deref(),
+            Some("moved"),
+            "'2' takes the second option"
+        );
 
         // The presenter would put the new line on screen; stand in for it and read it.
         if let Some(mut a) = app.world_mut().get_resource_mut::<Active>() {
@@ -1202,8 +1220,14 @@ mod tests {
         q.spoke_at(0.0, &s);
 
         assert!(q.take_ready(0.5, &s).is_none(), "reply jumped the gap");
-        assert!(q.take_ready(s.gap - 0.01, &s).is_none(), "reply jumped the gap");
-        assert_eq!(q.take_ready(s.gap, &s).map(|b| b.text), Some("Copy.".into()));
+        assert!(
+            q.take_ready(s.gap - 0.01, &s).is_none(),
+            "reply jumped the gap"
+        );
+        assert_eq!(
+            q.take_ready(s.gap, &s).map(|b| b.text),
+            Some("Copy.".into())
+        );
     }
 
     #[test]
@@ -1264,7 +1288,10 @@ mod tests {
             t += 0.1;
         }
         assert!(spoken.len() >= 3, "expected a paced drain, got {spoken:?}");
-        assert!(spoken.len() <= s.queue_cap, "released more than were queued");
+        assert!(
+            spoken.len() <= s.queue_cap,
+            "released more than were queued"
+        );
         for w in spoken.windows(2) {
             assert!(
                 w[1].1 - w[0].1 >= s.gap - 1.0e-3,
