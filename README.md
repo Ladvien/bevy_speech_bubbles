@@ -50,7 +50,7 @@ While a conversation runs the resource `ConversationLock` exists: pause on it, a
 })
 ```
 
-`Presenter::Balloons` puts every line over its speaker's head and auto-advances after a reading-speed dwell; a speaker with no entity (a narrator) is skipped. `Presenter::DialogBox` shows the screen box and waits for the player: `Space`, `Enter` or a click completes a typing line and then advances it; `1`-`9`, the arrows with `Enter`, or the mouse pick an option. Barks are always world balloons.
+`Presenter::Balloons` puts every line over its speaker's head and auto-advances after a reading-speed dwell; a speaker with no entity (a narrator) is skipped quietly, while a key that is not in `Speakers` at all (a misspelt or not-yet-registered one) is skipped with a `warn!` naming it: once per key for a bark, once per node for a line. `Presenter::DialogBox` shows the screen box and waits for the player: `Space`, `Enter` or a click completes a typing line and then advances it; `1`-`9`, the arrows with `Enter`, or the mouse pick an option. Barks are always world balloons.
 
 ## Scale and pixel balloons
 

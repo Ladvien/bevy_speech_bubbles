@@ -6,6 +6,15 @@ All notable changes to this crate are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A `Bark`, or a `Presenter::Balloons` line, whose speaker is not a key of `Speakers` is no longer
+  dropped in silence. The crate told a registered narrator (`entity: None`, quiet by design) from a key
+  nobody registered with one `None`; it now tells them apart and `warn!`s for the second, naming the
+  key and the bark's text, or the line's node and conversation. A bark's warning is once per key (a
+  per-key set, bounded at 64 keys), not once per call site, so a second misspelt key still speaks up;
+  what is shown is unchanged (#11).
+
 ## [0.2.2] - 2026-10-31
 
 ### Added
