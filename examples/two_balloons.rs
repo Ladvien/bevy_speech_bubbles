@@ -28,6 +28,7 @@ use std::time::Duration;
 use ab_glyph::FontArc;
 use bevy::app::ScheduleRunnerPlugin;
 use bevy::camera::RenderTarget;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::render::render_resource::{TextureFormat, TextureUsages};
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
@@ -250,6 +251,8 @@ fn setup(
             MeshMaterial3d(face.material),
             // `track_bubbles` reads `scale.y` to work out how far above the head to sit.
             Transform::from_scale(Vec3::new(face.size.x, face.size.y, 1.0)),
+            // A balloon is a flat quad in the air: it must not throw a shadow on the floor.
+            NotShadowCaster,
             Bubble {
                 owner,
                 offset: Vec2::ZERO,
